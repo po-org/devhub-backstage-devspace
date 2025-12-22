@@ -1,9 +1,12 @@
+import fs from 'fs/promises';
+import path from 'path';
 import { createTemplateAction } from '@backstage/plugin-scaffolder-node';
 import { z } from 'zod';
 
 /**
  * Creates an action that logs data with pretty JSON formatting
- * 
+ * and exposes it as a workspace file for UI links
+ *
  * @public
  */
 export function createPrettyLogAction() {
@@ -18,43 +21,43 @@ export function createPrettyLogAction() {
         message: z.string().optional().describe('Optional message to display before the data'),
       }),
     },
-    
+
     async handler(ctx) {
       const { data, title, indent = 2, message } = ctx.input;
-      
+
       const separator = '═'.repeat(60);
       const lines: string[] = [];
-      
-      // Add top separator
+
+      // Backend logging
       lines.push(separator);
-      
-      // Add title if provided
       if (title) {
         lines.push(`📋 ${title.toUpperCase()}`);
         lines.push(separator);
       }
-      
-      // Add message if provided
       if (message) {
         lines.push(message);
         lines.push('');
       }
-      
-      // Pretty print the data
+
       try {
         const prettyJson = JSON.stringify(data, null, indent);
         lines.push(prettyJson);
       } catch (error) {
-        // If JSON stringification fails, just convert to string
         lines.push(String(data));
         ctx.logger.warn(`Failed to stringify data as JSON: ${error}`);
       }
-      
-      // Add bottom separator
+
       lines.push(separator);
-      
-      // Log everything
       ctx.logger.info(lines.join('\n'));
+
+      // --- Write JSON to workspace so UI can link to it ---
+      const filePath = path.join(ctx.workspacePath, 'debug-output.json');
+      await fs.writeFile(filePath, JSON.stringify(data, null, indent), 'utf-8');
+
+      // Return the file path for template output links
+      return {
+        filePath: 'debug-output.json',
+      };
     },
   });
 }
