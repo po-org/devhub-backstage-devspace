@@ -12,5 +12,12 @@
     "role": "frontend-plugin",
     "packageName": "@backstage-community/plugin-tech-radar",
     "timestamp": "2025-10-14T02:00:42Z"
+  },
+  "scaffolder-backend-module-pretty-log": {
+    "hash": "afd86d2b3c24bf9afcef9f47f12e5d0f02c1ca56",
+    "version": "0.1.0",
+    "role": "backend-plugin-module",
+    "packageName": "@red-hat-developer-hub/backstage-plugin-scaffolder-backend-module-pretty-log",
+    "timestamp": "2025-12-22T22:11:16Z"
   }
 }
