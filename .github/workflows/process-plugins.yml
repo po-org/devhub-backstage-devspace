@@ -153,36 +153,36 @@ jobs:
           node scripts/process-plugin.js "$name"
         done
 
-    # - name: 🔐 Login to OpenShift cluster
-    #   if: steps.check_changes.outputs.has_changes == 'true'
-    #   run: |
-    #     oc login --token=${{ secrets.OC_LOGIN_TOKEN }} --server=https://api.rm1.0a51.p1.openshiftapps.com:6443
+    - name: 🔐 Login to OpenShift cluster
+      if: steps.check_changes.outputs.has_changes == 'true'
+      run: |
+        oc login --token=${{ secrets.OC_LOGIN_TOKEN }} --server=https://api.rm1.0a51.p1.openshiftapps.com:6443
 
-    # - name: 📤 Copy tarball to pod
-    #   if: steps.check_changes.outputs.has_changes == 'true'
-    #   working-directory: devhub-catalog
-    #   run: |
-    #     set -euo pipefail
-    #     POD=$(oc -n "$NS" get pod -l name=httpd-example -o jsonpath='{.items[?(@.status.phase=="Running")].metadata.name}' | awk '{print $1}')
-    #     if [ -z "$POD" ]; then
-    #       echo "No running pod found with label name=httpd-example in namespace $NS"
-    #       exit 1
-    #     fi
-    #     DEST=/opt/app-root/src
-    #     echo "Using pod: $POD"
-    #     echo "Dest: $DEST"
+    - name: 📤 Copy tarball to pod
+      if: steps.check_changes.outputs.has_changes == 'true'
+      working-directory: devhub-catalog
+      run: |
+        set -euo pipefail
+        POD=$(oc -n "$NS" get pod -l name=httpd-example -o jsonpath='{.items[?(@.status.phase=="Running")].metadata.name}' | awk '{print $1}')
+        if [ -z "$POD" ]; then
+          echo "No running pod found with label name=httpd-example in namespace $NS"
+          exit 1
+        fi
+        DEST=/opt/app-root/src
+        echo "Using pod: $POD"
+        echo "Dest: $DEST"
 
-    #     shopt -s nullglob
-    #     files=(processed/*.tgz)
-    #     if [ ${#files[@]} -eq 0 ]; then
-    #       echo "No .tgz files found in processed/"
-    #       exit 0
-    #     fi
+        shopt -s nullglob
+        files=(processed/*.tgz)
+        if [ ${#files[@]} -eq 0 ]; then
+          echo "No .tgz files found in processed/"
+          exit 0
+        fi
 
-    #     for f in "${files[@]}"; do
-    #       echo "Copying $(basename "$f")"
-    #       oc -n "$NS" cp "$f" "$POD":"$DEST/"
-    #     done
+        for f in "${files[@]}"; do
+          echo "Copying $(basename "$f")"
+          oc -n "$NS" cp "$f" "$POD":"$DEST/"
+        done
 
 
 
@@ -403,7 +403,6 @@ jobs:
           git commit -m "chore: update plugin processing metadata [skip ci]"
           git push origin HEAD
         fi
-
     - name: ⚠️ Display Plugin Configuration Disclaimer
       run: |
         echo "------------------------------------------------------------"
