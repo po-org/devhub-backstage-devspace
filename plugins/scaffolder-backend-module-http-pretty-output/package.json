@@ -1,19 +1,24 @@
 {
   "name": "@red-hat-developer-hub/http-pretty-output",
   "version": "0.1.0",
-  "private": false,
+  "private": true,
+  "description": "Scaffolder action that formats and logs JSON output from previous steps in a human-readable way",
   "main": "dist/index.cjs.js",
   "types": "dist/index.d.ts",
-  "backstage": {
-    "role": "backend-plugin-module"
-  },
+  "sideEffects": false,
+  "license": "Apache-2.0",
   "scripts": {
     "build": "backstage-cli package build",
     "lint": "backstage-cli package lint",
-    "test": "backstage-cli package test"
+    "clean": "backstage-cli package clean"
   },
   "dependencies": {
-    "@backstage/plugin-scaffolder-node": "^1.23.0",
+    "@backstage/plugin-scaffolder-node": "1.25.1",
+    "@backstage/backend-plugin-api": "1.8.1",
     "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@backstage/cli": "^0.31.0",
+    "typescript": "~5.2.2"
   }
 }
