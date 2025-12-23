@@ -102,9 +102,9 @@ async function requestWithRetries(
   throw lastError || new Error('Request failed after all retries');
 }
 
-export function createHttpEnterpriseAction() {
+export function createHttpAdvancedAction() {
   return createTemplateAction<InputType>({
-    id: 'http:enterprise:request',
+    id: 'http:advanced:request',
     description: 'Enterprise-ready HTTP request with retries, polling, and structured output',
     schema: { input: inputSchema, output: z.object({ prettyJson: z.string() }) },
 
@@ -131,7 +131,13 @@ export function createHttpEnterpriseAction() {
         if (input.polling?.enabled) {
           const endTime = Date.now() + (input.polling.timeoutMs ?? 60000);
           do {
-            const { response, retries, totalRetryMs: retryMs } = await requestWithRetries(input.url, requestOptions, DEFAULT_RETRIES, verbose, logger);
+            const { response, retries, totalRetryMs: retryMs } = await requestWithRetries(
+              input.url,
+              requestOptions,
+              DEFAULT_RETRIES,
+              verbose,
+              logger
+            );
             responseStatus = response.status;
             retryCount = retries;
             totalRetryMs = retryMs;
@@ -141,7 +147,13 @@ export function createHttpEnterpriseAction() {
             await sleep(input.polling.intervalMs ?? 5000);
           } while (Date.now() < endTime);
         } else {
-          const { response, retries, totalRetryMs: retryMs } = await requestWithRetries(input.url, requestOptions, DEFAULT_RETRIES, verbose, logger);
+          const { response, retries, totalRetryMs: retryMs } = await requestWithRetries(
+            input.url,
+            requestOptions,
+            DEFAULT_RETRIES,
+            verbose,
+            logger
+          );
           responseStatus = response.status;
           retryCount = retries;
           totalRetryMs = retryMs;
