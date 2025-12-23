@@ -1,5 +1,5 @@
 import { createTemplateAction } from '@backstage/plugin-scaffolder-node';
-import fetch, { HeadersInit } from 'node-fetch';
+import fetch, { RequestInit } from 'node-fetch';
 import { z } from 'zod';
 import { v4 as uuid } from 'uuid';
 
@@ -7,13 +7,23 @@ const DEFAULT_RETRIES = 3;
 const RETRY_STATUSES = [429, 500, 502, 503];
 const DEFAULT_TIMEOUT_MS = 30000;
 
-// Input schema for template authors
+// Input schema
 const inputSchema = z.object({
-  url: z.string().describe('The full URL or /proxy/... path to request'),
+  url: z.string().describe('Absolute URL or /proxy/... URL'),
   method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']).default('GET'),
   headers: z.record(z.string()).optional(),
   body: z.any().optional(),
   verbose: z.boolean().default(false),
+  auth: z
+    .object({
+      type: z.enum(['bearer', 'basic', 'apiKey']).optional(),
+      token: z.string().optional(),
+      username: z.string().optional(),
+      password: z.string().optional(),
+      apiKeyHeader: z.string().optional(),
+      apiKeyValue: z.string().optional(),
+    })
+    .optional(),
   polling: z
     .object({
       enabled: z.boolean().default(false),
@@ -21,25 +31,41 @@ const inputSchema = z.object({
       timeoutMs: z.number().default(60000),
     })
     .optional(),
-  retry: z
-    .object({
-      enabled: z.boolean().default(true),
-      maxRetries: z.number().default(DEFAULT_RETRIES),
-    })
-    .optional(),
 });
 
 type InputType = z.infer<typeof inputSchema>;
 
-const sleep = (ms: number) => new Promise(res => setTimeout(res, ms));
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-async function requestWithRetries(
-  url: string,
-  options: any,
-  maxRetries: number,
-  verbose: boolean,
-  logger?: any
-) {
+function buildHeaders(input: InputType, logger?: any) {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json', ...input.headers };
+
+  if (input.url?.startsWith('/proxy/') && input.auth?.token) {
+    // Token injection for proxy requests
+    headers['Authorization'] = `Bearer ${input.auth.token}`;
+    if (input.verbose) logger?.info(`Using /proxy URL, token automatically injected`);
+  } else if (input.auth) {
+    switch (input.auth.type) {
+      case 'bearer':
+        if (input.auth.token) headers['Authorization'] = `Bearer ${input.auth.token}`;
+        break;
+      case 'basic':
+        if (input.auth.username && input.auth.password) {
+          headers['Authorization'] = `Basic ${Buffer.from(`${input.auth.username}:${input.auth.password}`).toString('base64')}`;
+        }
+        break;
+      case 'apiKey':
+        if (input.auth.apiKeyHeader && input.auth.apiKeyValue) {
+          headers[input.auth.apiKeyHeader] = input.auth.apiKeyValue;
+        }
+        break;
+    }
+  }
+
+  return headers;
+}
+
+async function requestWithRetries(url: string, options: RequestInit, maxRetries = DEFAULT_RETRIES, verbose = false, logger?: any) {
   let attempt = 0;
   let lastError: Error | null = null;
   let totalRetryMs = 0;
@@ -61,24 +87,25 @@ async function requestWithRetries(
       }
 
       return { response, retries: attempt, totalRetryMs };
-    } catch (err: any) {
-      lastError = err;
+    } catch (error: any) {
+      lastError = error;
       if (attempt < maxRetries) {
         const delay = 500 * 2 ** attempt;
         totalRetryMs += delay;
-        if (verbose) logger?.info(`Attempt ${attempt + 1} failed (${err.message}), retrying in ${delay}ms...`);
+        if (verbose) logger?.info(`Attempt ${attempt + 1} failed (${error.message}), retrying in ${delay}ms...`);
         attempt++;
         await sleep(delay);
       } else throw lastError;
     }
   }
+
   throw lastError || new Error('Request failed after all retries');
 }
 
 export function createHttpAdvancedAction() {
   return createTemplateAction<InputType>({
     id: 'http:advanced:request',
-    description: 'Enterprise-ready HTTP request via /proxy with retries, polling, and structured JSON output',
+    description: 'Enterprise HTTP request with retries, polling, proxy token injection, and pretty JSON output',
     schema: { input: inputSchema, output: z.object({ prettyJson: z.string() }) },
 
     async handler(ctx) {
@@ -87,14 +114,10 @@ export function createHttpAdvancedAction() {
       const requestId = uuid();
       const verbose = input.verbose ?? false;
 
-      const headers: HeadersInit = { 'Content-Type': 'application/json', ...input.headers };
+      if (!input.url) throw new Error('Input "url" is required');
 
-      // If the URL starts with /proxy/, Backstage injects the user token automatically
-      if (input.url.startsWith('/proxy/') && verbose) {
-        logger?.info(`Using /proxy request, token will be injected automatically`);
-      }
-
-      const requestOptions: any = {
+      const headers = buildHeaders(input, logger);
+      const requestOptions: RequestInit = {
         method: input.method,
         headers,
         body: ['POST', 'PUT', 'PATCH'].includes(input.method) && input.body ? JSON.stringify(input.body) : undefined,
@@ -107,18 +130,10 @@ export function createHttpAdvancedAction() {
         let retryCount = 0;
         let totalRetryMs = 0;
 
-        const maxRetries = input.retry?.enabled ? input.retry.maxRetries : 0;
-
         if (input.polling?.enabled) {
           const endTime = Date.now() + (input.polling.timeoutMs ?? 60000);
           do {
-            const { response, retries, totalRetryMs: retryMs } = await requestWithRetries(
-              input.url,
-              requestOptions,
-              maxRetries,
-              verbose,
-              logger
-            );
+            const { response, retries, totalRetryMs: retryMs } = await requestWithRetries(input.url, requestOptions, DEFAULT_RETRIES, verbose, logger);
             responseStatus = response.status;
             retryCount = retries;
             totalRetryMs = retryMs;
@@ -128,13 +143,7 @@ export function createHttpAdvancedAction() {
             await sleep(input.polling.intervalMs ?? 5000);
           } while (Date.now() < endTime);
         } else {
-          const { response, retries, totalRetryMs: retryMs } = await requestWithRetries(
-            input.url,
-            requestOptions,
-            maxRetries,
-            verbose,
-            logger
-          );
+          const { response, retries, totalRetryMs: retryMs } = await requestWithRetries(input.url, requestOptions, DEFAULT_RETRIES, verbose, logger);
           responseStatus = response.status;
           retryCount = retries;
           totalRetryMs = retryMs;
@@ -144,34 +153,19 @@ export function createHttpAdvancedAction() {
         const durationMs = Date.now() - startTime;
 
         const structuredOutput = {
-          summary: {
-            success: responseStatus >= 200 && responseStatus < 300,
-            status: responseStatus,
-            retries: retryCount,
-            durationMs,
-          },
-          request: {
-            id: requestId,
-            method: input.method,
-            url: input.url,
-            timestamp: new Date(startTime).toISOString(),
-          },
-          response: {
-            status: responseStatus,
-            timestamp: new Date().toISOString(),
-            headers,
-          },
+          summary: { success: responseStatus >= 200 && responseStatus < 300, status: responseStatus, retries: retryCount, durationMs },
+          request: { id: requestId, method: input.method, url: input.url, timestamp: new Date(startTime).toISOString() },
+          response: { status: responseStatus, timestamp: new Date().toISOString(), headers },
           data: responseData,
           metrics: { retryCount, totalRetryMs },
         };
 
         output('prettyJson', JSON.stringify(structuredOutput, null, 2));
-
         if (verbose) logger?.info(`Request completed in ${durationMs}ms, requestId=${requestId}`);
-      } catch (err: any) {
+      } catch (error: any) {
         const durationMs = Date.now() - startTime;
-        logger?.error(`Request failed after ${durationMs}ms: ${err.message}, requestId=${requestId}`);
-        throw new Error(`HTTP request failed: ${err.message}`);
+        logger.error(`Request failed after ${durationMs}ms: ${error.message}, requestId=${requestId}`);
+        throw new Error(`HTTP request failed: ${error.message}`);
       }
     },
   });
