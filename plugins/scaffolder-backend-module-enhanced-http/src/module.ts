@@ -1,9 +1,9 @@
-import { createBackendModule } from '@backstage/backend-plugin-api';
 import { scaffolderActionsExtensionPoint } from '@backstage/plugin-scaffolder-node/alpha';
-import { createEnhancedHttpAction } from './actions/enhancedHttp';
+import { createBackendModule } from '@backstage/backend-plugin-api';
+import { createEnhancedHttpAction } from '../actions/enhancedHttp';
 
 /**
- * Backend module to register the enhanced HTTP action
+ * Backend module for enhanced HTTP scaffolder action
  */
 export const scaffolderModuleEnhancedHttp = createBackendModule({
   pluginId: 'scaffolder',
