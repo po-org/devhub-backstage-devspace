@@ -21,10 +21,17 @@
     "timestamp": "2025-12-22T23:03:03Z"
   },
   "scaffolder-backend-module-enhanced-http": {
-    "hash": "a2e41cc4d7bd5d969d396a9b54d4e1d820da352d",
+    "hash": "9e528ba1f96cbe4c295e8d0a88effa7a16ec232f",
     "version": "0.1.0",
     "role": "backend-plugin-module",
-    "packageName": "@red-hat-developer-hub/scaffolder-backend-module-enhanced-http",
-    "timestamp": "2025-12-23T02:26:48Z"
+    "packageName": "@red-hat-developer-hub/scaffolder-backend-module-frontend-json",
+    "timestamp": "2025-12-23T03:56:52Z"
+  },
+  "scaffolder-frontend-json-viewer": {
+    "hash": "23e6c0409957e259468f2f066e309c2e31172f69",
+    "version": "0.1.0",
+    "role": "frontend-plugin",
+    "packageName": "@red-hat-developer-hub/scaffolder-frontend-json-viewer",
+    "timestamp": "2025-12-23T03:56:52Z"
   }
 }
