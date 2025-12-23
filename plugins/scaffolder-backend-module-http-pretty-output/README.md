@@ -1,58 +1,17 @@
-# Scaffolder Backend Module: HTTP Pretty Output
+# http-pretty-output
 
-This Backstage scaffolder action formats the output of a previous HTTP request step into human-readable JSON.  
+A Red Hat Developer Hub (RHDH) dynamic backend plugin that formats and outputs
+JSON from previous scaffolder steps in a readable, pretty-printed form.
 
-It is designed to work with `http:backstage:request` or any HTTP step in your scaffolder template.
+This action behaves like `debug:log`, but is designed specifically for
+structured API responses (GitHub, Ansible, REST APIs, etc).
 
----
+## Why this exists
 
-## Installation
+- Keep `http:backstage:request` unchanged
+- Avoid passing secrets or tokens
+- Improve readability of API responses
+- Enable step-to-step inspection during scaffolding
 
-```bash
-cd packages/backend
-yarn add @internal/scaffolder-backend-module-http-pretty-output
+## Action ID
 
-
-apiVersion: scaffolder.backstage.io/v1beta3
-kind: Template
-metadata:
-  name: github-pretty-json
-  title: GitHub Repo Fetch Pretty JSON
-spec:
-  owner: user:default/c-nell
-  type: service
-
-  parameters:
-    - title: GitHub Repository
-      required:
-        - repoName
-        - owner
-      properties:
-        owner:
-          title: Repository Owner
-          type: string
-        repoName:
-          title: Repository Name
-          type: string
-
-  steps:
-    - id: fetchRepo
-      name: Fetch GitHub Repository
-      action: http:backstage:request
-      input:
-        method: GET
-        path: /proxy/github/repos/${{ parameters.owner }}/${{ parameters.repoName }}
-        headers:
-          Accept: application/vnd.github.v3+json
-
-    - id: prettyOutput
-      name: Pretty JSON Output
-      action: http-pretty-output
-      input:
-        stepName: fetchRepo
-
-    - id: debugOutput
-      name: Debug Output
-      action: debug:log
-      input:
-        message: ${{ steps.prettyOutput.output.prettyJson }}
