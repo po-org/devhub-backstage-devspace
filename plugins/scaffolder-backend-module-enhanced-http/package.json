@@ -16,7 +16,7 @@
     "@backstage/backend-plugin-api": "^0.7.0",
     "@backstage/plugin-scaffolder-node": "^0.4.0",
     "zod": "^3.22.4",
-    "node-fetch": "^3.4.0"
+    "node-fetch": "^2.6.12"
   },
   "devDependencies": {
     "typescript": "^5.2.0",
