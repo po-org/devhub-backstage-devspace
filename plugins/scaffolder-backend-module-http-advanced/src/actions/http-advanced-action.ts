@@ -7,7 +7,9 @@ const DEFAULT_RETRIES = 3;
 const RETRY_STATUSES = [429, 500, 502, 503];
 const DEFAULT_TIMEOUT_MS = 30000;
 
-// Minimal input schema for template authors
+// ----------------------------
+// Input schema
+// ----------------------------
 const inputSchema = z.object({
   url: z.string().describe('The URL to request'),
   method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']).default('GET'),
@@ -23,6 +25,7 @@ const inputSchema = z.object({
       apiKeyValue: z.string().optional(),
     })
     .optional(),
+  verbose: z.boolean().default(false),
   polling: z
     .object({
       enabled: z.boolean().default(false),
@@ -34,10 +37,11 @@ const inputSchema = z.object({
 
 type InputType = z.infer<typeof inputSchema>;
 
-// Utility sleep function
+// ----------------------------
+// Utilities
+// ----------------------------
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-// Build headers based on auth configuration
 function buildHeaders(input: InputType): Record<string, string> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json', ...input.headers };
   if (!input.auth) return headers;
@@ -60,12 +64,10 @@ function buildHeaders(input: InputType): Record<string, string> {
   return headers;
 }
 
-// Retry logic with exponential backoff
 async function requestWithRetries(
   url: string,
   options: any,
   maxRetries = DEFAULT_RETRIES,
-  logger?: any
 ) {
   let attempt = 0;
   let lastError: Error | null = null;
@@ -100,15 +102,17 @@ async function requestWithRetries(
   throw lastError || new Error('Request failed after all retries');
 }
 
-// Main action
+// ----------------------------
+// Main Action
+// ----------------------------
 export function createHttpAdvancedAction() {
   return createTemplateAction<InputType>({
     id: 'http:advanced:request',
-    description: 'Advanced HTTP request with retries, polling, and automatic structured output',
-    schema: { input: inputSchema, output: z.object({ prettyJson: z.string(), httpResponse: z.any() }) },
+    description: 'Advanced HTTP request with retries, optional polling, and pretty JSON output',
+    schema: { input: inputSchema, output: z.object({ prettyJson: z.string() }) },
 
     async handler(ctx) {
-      const { input, logger, output } = ctx;
+      const { input, output } = ctx;
       const startTime = Date.now();
       const requestId = uuid();
 
@@ -126,15 +130,11 @@ export function createHttpAdvancedAction() {
         let retryCount = 0;
         let totalRetryMs = 0;
 
+        // Optional polling
         if (input.polling?.enabled) {
           const endTime = Date.now() + (input.polling.timeoutMs ?? 60000);
           do {
-            const { response, retries, totalRetryMs: retryMs } = await requestWithRetries(
-              input.url,
-              requestOptions,
-              DEFAULT_RETRIES,
-              logger
-            );
+            const { response, retries, totalRetryMs: retryMs } = await requestWithRetries(input.url, requestOptions);
             responseStatus = response.status;
             retryCount = retries;
             totalRetryMs = retryMs;
@@ -143,12 +143,7 @@ export function createHttpAdvancedAction() {
             await sleep(input.polling.intervalMs ?? 5000);
           } while (Date.now() < endTime);
         } else {
-          const { response, retries, totalRetryMs: retryMs } = await requestWithRetries(
-            input.url,
-            requestOptions,
-            DEFAULT_RETRIES,
-            logger
-          );
+          const { response, retries, totalRetryMs: retryMs } = await requestWithRetries(input.url, requestOptions);
           responseStatus = response.status;
           retryCount = retries;
           totalRetryMs = retryMs;
@@ -165,13 +160,9 @@ export function createHttpAdvancedAction() {
           metrics: { retryCount, totalRetryMs },
         };
 
-        // Automatic outputs for templates
-        output('httpResponse', structuredOutput);                     // structured object
-        output('prettyJson', JSON.stringify(structuredOutput, null, 2)); // pretty JSON
-
+        // Automatic output for template
+        output('prettyJson', JSON.stringify(structuredOutput, null, 2));
       } catch (error: any) {
-        const durationMs = Date.now() - startTime;
-        logger.error(`Request failed after ${durationMs}ms: ${error.message}, requestId=${requestId}`);
         throw new Error(`HTTP request failed: ${error.message}`);
       }
     },
