@@ -530,7 +530,6 @@ export function createHttpAdvancedAction() {
 
         // Transform response if configured
         if (input.transformResponse?.enabled && input.transformResponse.jsonPath) {
-          const originalData = responseData;
           responseData = getValueByPath(responseData, input.transformResponse.jsonPath);
           
           if (verbose) {
