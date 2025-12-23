@@ -6087,9 +6087,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@internal/plugin-scaffolder-backend-module-enhanced-http@workspace:^, @internal/plugin-scaffolder-backend-module-enhanced-http@workspace:plugins/scaffolder-backend-module-enhanced-http":
+"@internal/plugin-scaffolder-backend-module-http-advanced-backend-module-http-advanced@workspace:^, @internal/plugin-scaffolder-backend-module-http-advanced-backend-module-http-advanced@workspace:plugins/scaffolder-backend-module-http-advanced-backend-module-http-advanced":
   version: 0.0.0-use.local
-  resolution: "@internal/plugin-scaffolder-backend-module-enhanced-http@workspace:plugins/scaffolder-backend-module-enhanced-http"
+  resolution: "@internal/plugin-scaffolder-backend-module-http-advanced-backend-module-http-advanced@workspace:plugins/scaffolder-backend-module-http-advanced-backend-module-http-advanced"
   dependencies:
     "@backstage/backend-plugin-api": "npm:^1.4.3"
     "@backstage/backend-test-utils": "npm:^1.9.0"
@@ -15247,7 +15247,7 @@ __metadata:
     "@backstage/plugin-search-backend-node": "npm:^1.3.15"
     "@backstage/plugin-signals-backend": "npm:^0.3.8"
     "@backstage/plugin-techdocs-backend": "npm:^2.1.0"
-    "@internal/plugin-scaffolder-backend-module-enhanced-http": "workspace:^"
+    "@internal/plugin-scaffolder-backend-module-http-advanced-backend-module-http-advanced": "workspace:^"
     app: "link:../app"
     better-sqlite3: "npm:^12.0.0"
     node-gyp: "npm:^10.0.0"
