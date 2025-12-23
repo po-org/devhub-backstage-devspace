@@ -1,26 +1,25 @@
 {
-  "name": "@red-hat-developer-hub/scaffolder-backend-module-enhanced-http",
+  "name": "@red-hat-developer-hub/scaffolder-backend-module-frontend-json",
   "version": "0.1.0",
+  "private": true,
   "main": "dist/index.cjs.js",
   "types": "dist/index.d.ts",
-  "license": "Apache-2.0",
-  "private": true,
-  "scripts": {
-    "build": "tsc -b",
-    "clean": "rimraf dist"
-  },
   "backstage": {
     "role": "backend-plugin-module"
+  },
+  "scripts": {
+    "build": "backstage-cli package build",
+    "lint": "backstage-cli package lint",
+    "test": "backstage-cli package test"
   },
   "dependencies": {
     "@backstage/backend-plugin-api": "^0.7.0",
     "@backstage/plugin-scaffolder-node": "^0.4.0",
-    "zod": "^3.22.4",
-    "node-fetch": "^2.6.12"
+    "@backstage/config": "^1.2.0",
+    "node-fetch": "^3.3.2",
+    "zod": "^3.22.4"
   },
-  "devDependencies": {
-    "typescript": "^5.2.0",
-    "@types/node": "^18.0.0"
-  },
-  "files": ["dist"]
+  "files": [
+    "dist"
+  ]
 }

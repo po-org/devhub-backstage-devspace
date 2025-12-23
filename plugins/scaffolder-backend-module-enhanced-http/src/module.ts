@@ -1,21 +1,21 @@
-import { scaffolderActionsExtensionPoint } from '@backstage/plugin-scaffolder-node/alpha';
 import { createBackendModule } from '@backstage/backend-plugin-api';
-import { createEnhancedHttpAction } from '../actions/enhancedHttp';
+import { scaffolderActionsExtensionPoint } from '@backstage/plugin-scaffolder-node/alpha';
+import { createFrontendJsonHttpAction } from './actions/frontendJsonHttp';
 
-/**
- * Backend module for enhanced HTTP scaffolder action
- */
-export const scaffolderModuleEnhancedHttp = createBackendModule({
+export const scaffolderModuleFrontendJsonHttp = createBackendModule({
   pluginId: 'scaffolder',
-  moduleId: 'enhanced-http',
+  moduleId: 'frontend-json-http',
   register(env) {
     env.registerInit({
-      deps: { scaffolder: scaffolderActionsExtensionPoint },
-      async init({ scaffolder }) {
-        scaffolder.addActions(createEnhancedHttpAction());
+      deps: {
+        scaffolder: scaffolderActionsExtensionPoint,
+        config: 'config',
+      },
+      async init({ scaffolder, config }) {
+        scaffolder.addActions(createFrontendJsonHttpAction(config));
       },
     });
   },
 });
 
-export default scaffolderModuleEnhancedHttp;
+export default scaffolderModuleFrontendJsonHttp;

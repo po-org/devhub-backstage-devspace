@@ -1,1 +1,4 @@
-export { scaffolderModuleEnhancedHttp as default } from './module';
+/**
+ * Scaffolder backend module: http:backstage:frontend-json
+ */
+export { scaffolderModuleFrontendJsonHttp as default } from './module';

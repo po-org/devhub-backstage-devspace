@@ -1,0 +1,1 @@
+export { scaffolderFrontendJsonPlugin } from './plugin';

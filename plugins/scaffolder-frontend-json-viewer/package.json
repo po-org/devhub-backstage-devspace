@@ -1,0 +1,16 @@
+{
+  "name": "@red-hat-developer-hub/scaffolder-frontend-json-viewer",
+  "version": "0.1.0",
+  "private": true,
+  "main": "dist/index.esm.js",
+  "types": "dist/index.d.ts",
+  "backstage": {
+    "role": "frontend-plugin"
+  },
+  "dependencies": {
+    "@backstage/core-plugin-api": "^1.8.0",
+    "@backstage/core-components": "^0.14.0",
+    "@backstage/plugin-scaffolder-react": "^1.9.0",
+    "react-json-view": "^1.21.3"
+  }
+}
