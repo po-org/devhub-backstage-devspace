@@ -1,161 +1,45 @@
-/**
- * Enhanced HTTP Request Plugin for Backstage
- * File: http-advanced-action.ts
- * Features:
- * - Automatic retry with exponential backoff
- * - Multiple authentication methods
- * - Pagination support (offset, cursor, page)
- * - Response transformation with JSON path
- * - Conditional validation
- * - Clean structured output
- * - Performance metrics
- * - Optional verbose logging
- */
-
 import { createTemplateAction } from '@backstage/plugin-scaffolder-node';
 import fetch from 'node-fetch';
 import { z } from 'zod';
+import { v4 as uuid } from 'uuid';
 
-// ============================================================================
-// INPUT SCHEMA
-// ============================================================================
+const DEFAULT_RETRIES = 3;
+const RETRY_STATUSES = [429, 500, 502, 503];
+const DEFAULT_TIMEOUT_MS = 30000;
 
+// Minimal input schema for template authors
 const inputSchema = z.object({
-  url: z.string().describe('The URL to make the request to'),
-
-  method: z
-    .enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'])
-    .default('GET')
-    .describe('HTTP method'),
-
-  headers: z.record(z.string()).optional().describe('Custom request headers'),
-
-  body: z.any().optional().describe('Request body (will be JSON stringified if object)'),
-
+  url: z.string().describe('The URL to request'),
+  method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']).default('GET'),
+  headers: z.record(z.string()).optional(),
+  body: z.any().optional(),
+  verbose: z.boolean().default(false),
   auth: z
     .object({
-      type: z.enum(['bearer', 'basic', 'apiKey', 'oauth2']),
+      type: z.enum(['bearer', 'basic', 'apiKey']).optional(),
       token: z.string().optional(),
       username: z.string().optional(),
       password: z.string().optional(),
       apiKeyHeader: z.string().optional(),
       apiKeyValue: z.string().optional(),
     })
-    .optional()
-    .describe('Authentication configuration'),
-
-  retry: z
+    .optional(),
+  polling: z
     .object({
       enabled: z.boolean().default(false),
-      maxRetries: z.number().default(3),
-      retryDelay: z.number().default(1000),
-      retryOn: z.array(z.number()).default([408, 429, 500, 502, 503, 504]),
-      exponentialBackoff: z.boolean().default(true),
+      intervalMs: z.number().default(5000),
+      timeoutMs: z.number().default(60000),
     })
-    .optional()
-    .describe('Retry configuration'),
-
-  timeout: z.number().default(30000).describe('Request timeout in milliseconds'),
-
-  responseType: z
-    .enum(['json', 'text', 'buffer', 'stream'])
-    .default('json')
-    .describe('Expected response type'),
-
-  transformResponse: z
-    .object({
-      enabled: z.boolean().default(false),
-      jsonPath: z.string().optional(),
-    })
-    .optional()
-    .describe('Response transformation using JSON path'),
-
-  pagination: z
-    .object({
-      enabled: z.boolean().default(false),
-      type: z.enum(['offset', 'cursor', 'page']),
-      limitParam: z.string().default('limit'),
-      offsetParam: z.string().default('offset'),
-      pageParam: z.string().default('page'),
-      cursorParam: z.string().default('cursor'),
-      maxPages: z.number().default(10),
-      resultsPath: z.string().optional(),
-      nextCursorPath: z.string().optional(),
-    })
-    .optional()
-    .describe('Pagination configuration'),
-
-  conditionalRequest: z
-    .object({
-      ifStatusEquals: z.number().optional(),
-      ifBodyContains: z.string().optional(),
-      ifHeaderExists: z.string().optional(),
-    })
-    .optional()
-    .describe('Conditional validation rules'),
-
-  saveResponse: z
-    .object({
-      enabled: z.boolean().default(true),
-      outputKey: z.string().default('httpResponse'),
-    })
-    .optional()
-    .describe('Output configuration'),
-
-  verbose: z.boolean().default(false).describe('Enable detailed logging'),
+    .optional(),
 });
 
 type InputType = z.infer<typeof inputSchema>;
 
-// ============================================================================
-// OUTPUT SCHEMA
-// ============================================================================
-
-const outputSchema = z.object({
-  summary: z.object({
-    success: z.boolean(),
-    status: z.number(),
-    statusText: z.string(),
-    method: z.string(),
-    url: z.string(),
-    durationMs: z.number(),
-    recordCount: z.number().optional(),
-    retries: z.number().optional(),
-  }),
-
-  data: z.any(),
-
-  metrics: z
-    .object({
-      totalDurationMs: z.number(),
-      retryCount: z.number(),
-      retryDelaysTotalMs: z.number(),
-      pagesProcessed: z.number().optional(),
-      totalRecords: z.number().optional(),
-    })
-    .optional(),
-
-  request: z.object({
-    method: z.string(),
-    url: z.string(),
-    timestamp: z.string(),
-  }),
-
-  response: z.object({
-    status: z.number(),
-    statusText: z.string(),
-    timestamp: z.string(),
-    contentType: z.string().optional(),
-  }),
-});
-
-// ============================================================================
-// HELPER FUNCTIONS
-// ============================================================================
+// Utility functions
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 function buildHeaders(input: InputType): Record<string, string> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json', ...input.headers };
-
   if (!input.auth) return headers;
 
   switch (input.auth.type) {
@@ -164,9 +48,7 @@ function buildHeaders(input: InputType): Record<string, string> {
       break;
     case 'basic':
       if (input.auth.username && input.auth.password) {
-        headers['Authorization'] = `Basic ${Buffer.from(
-          `${input.auth.username}:${input.auth.password}`,
-        ).toString('base64')}`;
+        headers['Authorization'] = `Basic ${Buffer.from(`${input.auth.username}:${input.auth.password}`).toString('base64')}`;
       }
       break;
     case 'apiKey':
@@ -174,72 +56,45 @@ function buildHeaders(input: InputType): Record<string, string> {
         headers[input.auth.apiKeyHeader] = input.auth.apiKeyValue;
       }
       break;
-    case 'oauth2':
-      if (input.auth.token) headers['Authorization'] = `Bearer ${input.auth.token}`;
-      break;
   }
   return headers;
 }
 
-function sleep(ms: number) {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
-
-function getRetryDelay(attempt: number, baseDelay: number, exponential: boolean) {
-  return exponential ? baseDelay * 2 ** (attempt - 1) : baseDelay;
-}
-
-function getValueByPath(obj: any, path: string) {
-  return path.split('.').reduce((acc, k) => acc?.[k], obj);
-}
-
-function formatDuration(ms: number) {
-  if (ms < 1000) return `${Math.round(ms)}ms`;
-  if (ms < 60000) return `${(ms / 1000).toFixed(2)}s`;
-  return `${Math.floor(ms / 60000)}m ${Math.round((ms % 60000) / 1000)}s`;
-}
-
-async function makeRequestWithRetry(
+async function requestWithRetries(
   url: string,
   options: any,
-  retryConfig?: InputType['retry'],
+  maxRetries = DEFAULT_RETRIES,
   verbose = false,
-  logger?: any,
+  logger?: any
 ) {
-  const maxRetries = retryConfig?.enabled ? retryConfig.maxRetries : 0;
-  let retryCount = 0;
-  let totalRetryDelay = 0;
+  let attempt = 0;
   let lastError: Error | null = null;
+  let totalRetryMs = 0;
 
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+  while (attempt <= maxRetries) {
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), options.timeout || 30000);
-
+      const timeoutId = setTimeout(() => controller.abort(), options.timeout || DEFAULT_TIMEOUT_MS);
       const response = await fetch(url, { ...options, signal: controller.signal });
       clearTimeout(timeoutId);
 
-      if (
-        retryConfig?.enabled &&
-        attempt < maxRetries &&
-        retryConfig.retryOn?.includes(response.status)
-      ) {
-        const delay = getRetryDelay(attempt + 1, retryConfig.retryDelay || 1000, retryConfig.exponentialBackoff ?? true);
-        if (verbose) logger?.info(`Attempt ${attempt + 1}/${maxRetries + 1} failed (${response.status}), retrying in ${formatDuration(delay)}...`);
-        retryCount++;
-        totalRetryDelay += delay;
+      if (RETRY_STATUSES.includes(response.status) && attempt < maxRetries) {
+        const delay = 500 * 2 ** attempt;
+        totalRetryMs += delay;
+        if (verbose) logger?.info(`Attempt ${attempt + 1} failed with status ${response.status}, retrying in ${delay}ms...`);
+        attempt++;
         await sleep(delay);
         continue;
       }
 
-      return { response, retryCount, retryDelayMs: totalRetryDelay };
+      return { response, retries: attempt, totalRetryMs };
     } catch (error: any) {
       lastError = error;
-      if (attempt < maxRetries && retryConfig?.enabled) {
-        const delay = getRetryDelay(attempt + 1, retryConfig.retryDelay || 1000, retryConfig.exponentialBackoff ?? true);
-        if (verbose) logger?.info(`Attempt ${attempt + 1}/${maxRetries + 1} failed (${error.message}), retrying in ${formatDuration(delay)}...`);
-        retryCount++;
-        totalRetryDelay += delay;
+      if (attempt < maxRetries) {
+        const delay = 500 * 2 ** attempt;
+        totalRetryMs += delay;
+        if (verbose) logger?.info(`Attempt ${attempt + 1} failed (${error.message}), retrying in ${delay}ms...`);
+        attempt++;
         await sleep(delay);
       } else throw lastError;
     }
@@ -247,201 +102,68 @@ async function makeRequestWithRetry(
   throw lastError || new Error('Request failed after all retries');
 }
 
-async function handlePagination(
-  baseUrl: string,
-  options: any,
-  paginationConfig: NonNullable<InputType['pagination']>,
-  retryConfig?: InputType['retry'],
-  verbose = false,
-  logger?: any,
-) {
-  const results: any[] = [];
-  let page = 1;
-  let hasMore = true;
-  let cursor: string | undefined;
-
-  while (hasMore && page <= paginationConfig.maxPages) {
-    const urlObj = new URL(baseUrl);
-    switch (paginationConfig.type) {
-      case 'offset':
-        const offset = (page - 1) * 50;
-        urlObj.searchParams.set(paginationConfig.offsetParam, offset.toString());
-        urlObj.searchParams.set(paginationConfig.limitParam, '50');
-        break;
-      case 'page':
-        urlObj.searchParams.set(paginationConfig.pageParam, page.toString());
-        break;
-      case 'cursor':
-        if (cursor) urlObj.searchParams.set(paginationConfig.cursorParam, cursor);
-        break;
-    }
-
-    if (verbose) logger?.info(`Fetching page ${page}/${paginationConfig.maxPages}...`);
-
-    const { response } = await makeRequestWithRetry(urlObj.toString(), options, retryConfig, verbose, logger);
-    const data = await response.json();
-
-    const pageResults = paginationConfig.resultsPath ? getValueByPath(data, paginationConfig.resultsPath) : data;
-    if (Array.isArray(pageResults)) results.push(...pageResults);
-    else results.push(pageResults);
-
-    if (paginationConfig.type === 'cursor' && paginationConfig.nextCursorPath) {
-      cursor = getValueByPath(data, paginationConfig.nextCursorPath);
-      hasMore = !!cursor;
-    } else hasMore = Array.isArray(pageResults) && pageResults.length > 0;
-
-    page++;
-  }
-
-  return { results, pagesProcessed: page - 1 };
-}
-
-// ============================================================================
-// MAIN ACTION
-// ============================================================================
-
-export function createHttpAdvancedAction() {
+export function createHttpEnterpriseAction() {
   return createTemplateAction<InputType>({
-    id: 'http:backstage:request:advanced',
-    description: 'Advanced HTTP request with retry, pagination, and enhanced features',
-
-    schema: { input: inputSchema, output: outputSchema },
+    id: 'http:enterprise:request',
+    description: 'Enterprise-ready HTTP request with retries, polling, and structured output',
+    schema: { input: inputSchema, output: z.object({ prettyJson: z.string() }) },
 
     async handler(ctx) {
       const { input, logger, output } = ctx;
       const startTime = Date.now();
+      const requestId = uuid();
       const verbose = input.verbose ?? false;
 
+      const headers = buildHeaders(input);
+      const requestOptions: any = {
+        method: input.method,
+        headers,
+        body: ['POST', 'PUT', 'PATCH'].includes(input.method) && input.body ? JSON.stringify(input.body) : undefined,
+        timeout: DEFAULT_TIMEOUT_MS,
+      };
+
       try {
-        if (verbose) {
-          logger.info(`Starting ${input.method} request to ${input.url}`);
-          if (input.retry?.enabled) {
-            logger.info(
-              `Retry enabled: max ${input.retry?.maxRetries ?? 3} attempts, ` +
-                `${formatDuration(input.retry?.retryDelay ?? 1000)} base delay`,
-            );
-          }
-          if (input.pagination?.enabled) {
-            logger.info(`Pagination enabled: ${input.pagination.type}, max ${input.pagination.maxPages} pages`);
-          }
-        }
-
-        const headers = buildHeaders(input);
-        const requestOptions: any = { method: input.method, headers, timeout: input.timeout };
-
-        if (input.body && ['POST', 'PUT', 'PATCH'].includes(input.method)) {
-          requestOptions.body = typeof input.body === 'string' ? input.body : JSON.stringify(input.body);
-        }
-
         let responseData: any;
-        let response: any;
+        let responseStatus: number;
         let retryCount = 0;
-        let retryDelayMs = 0;
-        let pagesProcessed: number | undefined;
-        let totalRecords: number | undefined;
+        let totalRetryMs = 0;
 
-        if (input.pagination?.enabled) {
-          const result = await handlePagination(input.url, requestOptions, input.pagination, input.retry, verbose, logger);
-          responseData = result.results;
-          pagesProcessed = result.pagesProcessed;
-          totalRecords = result.results.length;
-
-          response = { status: 200, statusText: 'OK', ok: true, headers: new Map() };
+        if (input.polling?.enabled) {
+          const endTime = Date.now() + (input.polling.timeoutMs ?? 60000);
+          do {
+            const { response, retries, totalRetryMs: retryMs } = await requestWithRetries(input.url, requestOptions, DEFAULT_RETRIES, verbose, logger);
+            responseStatus = response.status;
+            retryCount = retries;
+            totalRetryMs = retryMs;
+            responseData = await response.json();
+            if (response.ok) break;
+            if (verbose) logger?.info(`Polling: status ${response.status}, retrying...`);
+            await sleep(input.polling.intervalMs ?? 5000);
+          } while (Date.now() < endTime);
         } else {
-          const result = await makeRequestWithRetry(input.url, requestOptions, input.retry, verbose, logger);
-          response = result.response;
-          retryCount = result.retryCount;
-          retryDelayMs = result.retryDelayMs;
-
-          switch (input.responseType) {
-            case 'json':
-              responseData = await response.json();
-              break;
-            case 'text':
-              responseData = await response.text();
-              break;
-            case 'buffer':
-              responseData = await response.buffer();
-              break;
-            case 'stream':
-              responseData = response.body;
-              break;
-            default:
-              responseData = await response.json();
-          }
+          const { response, retries, totalRetryMs: retryMs } = await requestWithRetries(input.url, requestOptions, DEFAULT_RETRIES, verbose, logger);
+          responseStatus = response.status;
+          retryCount = retries;
+          totalRetryMs = retryMs;
+          responseData = await response.json();
         }
 
-        if (input.transformResponse?.enabled && input.transformResponse.jsonPath) {
-          responseData = getValueByPath(responseData, input.transformResponse.jsonPath);
-          if (verbose) logger.info(`Transformed response using path: ${input.transformResponse.jsonPath}`);
-        }
-
-        if (typeof responseData === 'string') responseData = { rawText: responseData };
-
-        if (input.conditionalRequest) {
-          if (input.conditionalRequest.ifStatusEquals && response.status !== input.conditionalRequest.ifStatusEquals)
-            throw new Error(`Expected status ${input.conditionalRequest.ifStatusEquals}, got ${response.status}`);
-          if (input.conditionalRequest.ifBodyContains && !JSON.stringify(responseData).includes(input.conditionalRequest.ifBodyContains))
-            throw new Error(`Response body does not contain "${input.conditionalRequest.ifBodyContains}"`);
-          if (input.conditionalRequest.ifHeaderExists && !response.headers?.has?.(input.conditionalRequest.ifHeaderExists))
-            throw new Error(`Response missing required header "${input.conditionalRequest.ifHeaderExists}"`);
-          if (verbose) logger.info('All conditional validations passed');
-        }
-
-        const totalDuration = Date.now() - startTime;
-        let recordCount: number | undefined;
-        if (Array.isArray(responseData)) recordCount = responseData.length;
-        else if (totalRecords !== undefined) recordCount = totalRecords;
+        const durationMs = Date.now() - startTime;
 
         const structuredOutput = {
-          summary: {
-            success: true,
-            status: response.status,
-            statusText: response.statusText ?? 'OK',
-            method: input.method,
-            url: input.url,
-            durationMs: totalDuration,
-            ...(recordCount !== undefined && { recordCount }),
-            ...(retryCount > 0 && { retries: retryCount }),
-          },
-
+          summary: { success: responseStatus >= 200 && responseStatus < 300, status: responseStatus, retries: retryCount, durationMs },
+          request: { id: requestId, method: input.method, url: input.url, timestamp: new Date(startTime).toISOString() },
+          response: { status: responseStatus, timestamp: new Date().toISOString(), headers },
           data: responseData,
-
-          metrics: {
-            totalDurationMs: totalDuration,
-            retryCount,
-            retryDelaysTotalMs: retryDelayMs,
-            ...(pagesProcessed !== undefined && { pagesProcessed }),
-            ...(totalRecords !== undefined && { totalRecords }),
-          },
-
-          request: {
-            method: input.method,
-            url: input.url,
-            timestamp: new Date(startTime).toISOString(),
-          },
-
-          response: {
-            status: response.status,
-            statusText: response.statusText ?? 'OK',
-            timestamp: new Date().toISOString(),
-            contentType: typeof response.headers?.get === 'function' ? response.headers.get('content-type') : undefined,
-          },
+          metrics: { retryCount, totalRetryMs },
         };
 
-        const outputKey = input.saveResponse?.outputKey ?? 'httpResponse';
-        output(outputKey, structuredOutput);
+        output('prettyJson', JSON.stringify(structuredOutput, null, 2));
 
-        if (verbose) {
-          logger.info(`Request completed successfully in ${formatDuration(totalDuration)}`);
-          if (retryCount > 0) logger.info(`Succeeded after ${retryCount} retries`);
-          if (pagesProcessed) logger.info(`Processed ${pagesProcessed} pages, ${totalRecords} total records`);
-        } else {
-          logger.info(`✓ Request completed successfully in ${formatDuration(totalDuration)}`);
-        }
+        if (verbose) logger?.info(`Request completed in ${durationMs}ms, requestId=${requestId}`);
       } catch (error: any) {
-        const duration = Date.now() - startTime;
-        logger.error(`✗ Request failed after ${formatDuration(duration)}: ${error.message}`);
+        const durationMs = Date.now() - startTime;
+        logger.error(`Request failed after ${durationMs}ms: ${error.message}, requestId=${requestId}`);
         throw new Error(`HTTP request failed: ${error.message}`);
       }
     },
