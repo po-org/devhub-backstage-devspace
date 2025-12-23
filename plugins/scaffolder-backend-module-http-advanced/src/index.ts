@@ -4,5 +4,4 @@
  * @packageDocumentation
  */
 
-export { scaffolderModuleHttpAdvanced as default } from './module';
-export * from './actions';
+export { createHttpAdvancedAction } from './actions/http-advanced-action';
