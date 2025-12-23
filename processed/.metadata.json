@@ -19,5 +19,12 @@
     "role": "backend-plugin-module",
     "packageName": "@red-hat-developer-hub/backstage-plugin-scaffolder-backend-module-pretty-log",
     "timestamp": "2025-12-22T23:03:03Z"
+  },
+  "scaffolder-backend-module-enhanced-http": {
+    "hash": "a2e41cc4d7bd5d969d396a9b54d4e1d820da352d",
+    "version": "0.1.0",
+    "role": "backend-plugin-module",
+    "packageName": "@red-hat-developer-hub/scaffolder-backend-module-enhanced-http",
+    "timestamp": "2025-12-23T02:26:48Z"
   }
 }
