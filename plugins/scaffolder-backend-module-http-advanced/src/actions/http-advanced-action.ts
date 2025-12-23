@@ -7,25 +7,11 @@ const DEFAULT_RETRIES = 3;
 const RETRY_STATUSES = [429, 500, 502, 503];
 const DEFAULT_TIMEOUT_MS = 30000;
 
-// ----------------------------
-// Input schema
-// ----------------------------
 const inputSchema = z.object({
-  url: z.string().describe('The URL to request'),
+  path: z.string().describe('The proxy path to call, e.g. /proxy/github/repos/org/repo'),
   method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']).default('GET'),
   headers: z.record(z.string()).optional(),
   body: z.any().optional(),
-  auth: z
-    .object({
-      type: z.enum(['bearer', 'basic', 'apiKey']).optional(),
-      token: z.string().optional(),
-      username: z.string().optional(),
-      password: z.string().optional(),
-      apiKeyHeader: z.string().optional(),
-      apiKeyValue: z.string().optional(),
-    })
-    .optional(),
-  verbose: z.boolean().default(false),
   polling: z
     .object({
       enabled: z.boolean().default(false),
@@ -37,37 +23,12 @@ const inputSchema = z.object({
 
 type InputType = z.infer<typeof inputSchema>;
 
-// ----------------------------
-// Utilities
-// ----------------------------
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-
-function buildHeaders(input: InputType): Record<string, string> {
-  const headers: Record<string, string> = { 'Content-Type': 'application/json', ...input.headers };
-  if (!input.auth) return headers;
-
-  switch (input.auth.type) {
-    case 'bearer':
-      if (input.auth.token) headers['Authorization'] = `Bearer ${input.auth.token}`;
-      break;
-    case 'basic':
-      if (input.auth.username && input.auth.password) {
-        headers['Authorization'] = `Basic ${Buffer.from(`${input.auth.username}:${input.auth.password}`).toString('base64')}`;
-      }
-      break;
-    case 'apiKey':
-      if (input.auth.apiKeyHeader && input.auth.apiKeyValue) {
-        headers[input.auth.apiKeyHeader] = input.auth.apiKeyValue;
-      }
-      break;
-  }
-  return headers;
-}
 
 async function requestWithRetries(
   url: string,
   options: any,
-  maxRetries = DEFAULT_RETRIES,
+  maxRetries = DEFAULT_RETRIES
 ) {
   let attempt = 0;
   let lastError: Error | null = null;
@@ -102,13 +63,10 @@ async function requestWithRetries(
   throw lastError || new Error('Request failed after all retries');
 }
 
-// ----------------------------
-// Main Action
-// ----------------------------
 export function createHttpAdvancedAction() {
   return createTemplateAction<InputType>({
     id: 'http:advanced:request',
-    description: 'Advanced HTTP request with retries, optional polling, and pretty JSON output',
+    description: 'HTTP request via Backstage proxy with retries, optional polling, and structured output',
     schema: { input: inputSchema, output: z.object({ prettyJson: z.string() }) },
 
     async handler(ctx) {
@@ -116,10 +74,9 @@ export function createHttpAdvancedAction() {
       const startTime = Date.now();
       const requestId = uuid();
 
-      const headers = buildHeaders(input);
       const requestOptions: any = {
         method: input.method,
-        headers,
+        headers: { 'Content-Type': 'application/json', ...input.headers },
         body: ['POST', 'PUT', 'PATCH'].includes(input.method) && input.body ? JSON.stringify(input.body) : undefined,
         timeout: DEFAULT_TIMEOUT_MS,
       };
@@ -130,11 +87,10 @@ export function createHttpAdvancedAction() {
         let retryCount = 0;
         let totalRetryMs = 0;
 
-        // Optional polling
         if (input.polling?.enabled) {
           const endTime = Date.now() + (input.polling.timeoutMs ?? 60000);
           do {
-            const { response, retries, totalRetryMs: retryMs } = await requestWithRetries(input.url, requestOptions);
+            const { response, retries, totalRetryMs: retryMs } = await requestWithRetries(input.path, requestOptions);
             responseStatus = response.status;
             retryCount = retries;
             totalRetryMs = retryMs;
@@ -143,7 +99,7 @@ export function createHttpAdvancedAction() {
             await sleep(input.polling.intervalMs ?? 5000);
           } while (Date.now() < endTime);
         } else {
-          const { response, retries, totalRetryMs: retryMs } = await requestWithRetries(input.url, requestOptions);
+          const { response, retries, totalRetryMs: retryMs } = await requestWithRetries(input.path, requestOptions);
           responseStatus = response.status;
           retryCount = retries;
           totalRetryMs = retryMs;
@@ -154,13 +110,12 @@ export function createHttpAdvancedAction() {
 
         const structuredOutput = {
           summary: { success: responseStatus >= 200 && responseStatus < 300, status: responseStatus, retries: retryCount, durationMs },
-          request: { id: requestId, method: input.method, url: input.url, timestamp: new Date(startTime).toISOString() },
-          response: { status: responseStatus, timestamp: new Date().toISOString(), headers },
+          request: { id: requestId, method: input.method, path: input.path, timestamp: new Date(startTime).toISOString() },
+          response: { status: responseStatus, timestamp: new Date().toISOString(), headers: requestOptions.headers },
           data: responseData,
           metrics: { retryCount, totalRetryMs },
         };
 
-        // Automatic output for template
         output('prettyJson', JSON.stringify(structuredOutput, null, 2));
       } catch (error: any) {
         throw new Error(`HTTP request failed: ${error.message}`);
