@@ -33,5 +33,12 @@
     "role": "backend-plugin-module",
     "packageName": "@red-hat-developer-hub/scaffolder-backend-module-frontend-json",
     "timestamp": "2025-12-23T04:04:08Z"
+  },
+  "scaffolder-backend-module-http-advanced": {
+    "hash": "8b39fad3fa7040f800a304bc9f5792ebe52067b1",
+    "version": "0.1.0",
+    "role": "backend-plugin-module",
+    "packageName": "@internal/backstage-plugin-scaffolder-backend-module-http-advanced",
+    "timestamp": "2025-12-23T18:30:14Z"
   }
 }
