@@ -1,20 +1,10 @@
-/**
- * Enhanced HTTP Request Action Plugin
- * 
- * @packageDocumentation
- */
-
-import { 
+import {
   coreServices,
   createBackendModule,
 } from '@backstage/backend-plugin-api';
 import { scaffolderActionsExtensionPoint } from '@backstage/plugin-scaffolder-node/alpha';
 import { createHttpAdvancedAction } from './actions/http-advanced-action';
 
-/**
- * Scaffolder backend module for HTTP advanced action
- * @public
- */
 export default createBackendModule({
   pluginId: 'scaffolder',
   moduleId: 'http-advanced',
@@ -23,14 +13,14 @@ export default createBackendModule({
       deps: {
         scaffolder: scaffolderActionsExtensionPoint,
         logger: coreServices.logger,
+        fetch: coreServices.fetch,
       },
-      async init({ scaffolder, logger }) {
+      async init({ scaffolder, logger, fetch }) {
         logger.info('Registering HTTP advanced action');
-        scaffolder.addActions(createHttpAdvancedAction());
+        scaffolder.addActions(
+          createHttpAdvancedAction({ fetch }),
+        );
       },
     });
   },
 });
-
-// Also export the action for direct use if needed
-export { createHttpAdvancedAction } from './actions/http-advanced-action';
