@@ -69,4 +69,5 @@ backend.add(import('@backstage/plugin-signals-backend'));
 
 
 backend.add(import('@internal/plugin-backend-test-backend'));
+backend.add(import('@internal/plugin-scaffolder-backend-module-enhanced-http'));
 backend.start();
