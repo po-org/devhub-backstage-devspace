@@ -13,12 +13,12 @@
     "clean": "backstage-cli package clean"
   },
   "dependencies": {
-    "@backstage/plugin-scaffolder-node": "1.25.1",
-    "@backstage/backend-plugin-api": "1.8.1",
+    "@backstage/plugin-scaffolder-node": "^1.25.1",
+    "@backstage/backend-plugin-api": "^1.7.",
     "zod": "^3.23.8"
   },
   "devDependencies": {
     "@backstage/cli": "^0.31.0",
-    "typescript": "~5.2.2"
+    "typescript": "^5.2.2"
   }
 }
