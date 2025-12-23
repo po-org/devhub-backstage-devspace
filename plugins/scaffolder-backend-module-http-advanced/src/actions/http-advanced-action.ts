@@ -13,7 +13,6 @@ const inputSchema = z.object({
   method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']).default('GET'),
   headers: z.record(z.string()).optional(),
   body: z.any().optional(),
-  verbose: z.boolean().default(false),
   auth: z
     .object({
       type: z.enum(['bearer', 'basic', 'apiKey']).optional(),
@@ -35,9 +34,10 @@ const inputSchema = z.object({
 
 type InputType = z.infer<typeof inputSchema>;
 
-// Utility functions
+// Utility sleep function
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
+// Build headers based on auth configuration
 function buildHeaders(input: InputType): Record<string, string> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json', ...input.headers };
   if (!input.auth) return headers;
@@ -60,11 +60,11 @@ function buildHeaders(input: InputType): Record<string, string> {
   return headers;
 }
 
+// Retry logic with exponential backoff
 async function requestWithRetries(
   url: string,
   options: any,
   maxRetries = DEFAULT_RETRIES,
-  verbose = false,
   logger?: any
 ) {
   let attempt = 0;
@@ -81,7 +81,6 @@ async function requestWithRetries(
       if (RETRY_STATUSES.includes(response.status) && attempt < maxRetries) {
         const delay = 500 * 2 ** attempt;
         totalRetryMs += delay;
-        if (verbose) logger?.info(`Attempt ${attempt + 1} failed with status ${response.status}, retrying in ${delay}ms...`);
         attempt++;
         await sleep(delay);
         continue;
@@ -93,7 +92,6 @@ async function requestWithRetries(
       if (attempt < maxRetries) {
         const delay = 500 * 2 ** attempt;
         totalRetryMs += delay;
-        if (verbose) logger?.info(`Attempt ${attempt + 1} failed (${error.message}), retrying in ${delay}ms...`);
         attempt++;
         await sleep(delay);
       } else throw lastError;
@@ -102,17 +100,17 @@ async function requestWithRetries(
   throw lastError || new Error('Request failed after all retries');
 }
 
+// Main action
 export function createHttpAdvancedAction() {
   return createTemplateAction<InputType>({
     id: 'http:advanced:request',
-    description: 'Enterprise-ready HTTP request with retries, polling, and structured output',
-    schema: { input: inputSchema, output: z.object({ prettyJson: z.string() }) },
+    description: 'Advanced HTTP request with retries, polling, and automatic structured output',
+    schema: { input: inputSchema, output: z.object({ prettyJson: z.string(), httpResponse: z.any() }) },
 
     async handler(ctx) {
       const { input, logger, output } = ctx;
       const startTime = Date.now();
       const requestId = uuid();
-      const verbose = input.verbose ?? false;
 
       const headers = buildHeaders(input);
       const requestOptions: any = {
@@ -135,7 +133,6 @@ export function createHttpAdvancedAction() {
               input.url,
               requestOptions,
               DEFAULT_RETRIES,
-              verbose,
               logger
             );
             responseStatus = response.status;
@@ -143,7 +140,6 @@ export function createHttpAdvancedAction() {
             totalRetryMs = retryMs;
             responseData = await response.json();
             if (response.ok) break;
-            if (verbose) logger?.info(`Polling: status ${response.status}, retrying...`);
             await sleep(input.polling.intervalMs ?? 5000);
           } while (Date.now() < endTime);
         } else {
@@ -151,7 +147,6 @@ export function createHttpAdvancedAction() {
             input.url,
             requestOptions,
             DEFAULT_RETRIES,
-            verbose,
             logger
           );
           responseStatus = response.status;
@@ -170,9 +165,10 @@ export function createHttpAdvancedAction() {
           metrics: { retryCount, totalRetryMs },
         };
 
-        output('prettyJson', JSON.stringify(structuredOutput, null, 2));
+        // Automatic outputs for templates
+        output('httpResponse', structuredOutput);                     // structured object
+        output('prettyJson', JSON.stringify(structuredOutput, null, 2)); // pretty JSON
 
-        if (verbose) logger?.info(`Request completed in ${durationMs}ms, requestId=${requestId}`);
       } catch (error: any) {
         const durationMs = Date.now() - startTime;
         logger.error(`Request failed after ${durationMs}ms: ${error.message}, requestId=${requestId}`);
