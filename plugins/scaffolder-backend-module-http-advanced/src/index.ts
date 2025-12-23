@@ -12,11 +12,11 @@ export default createBackendModule({
     env.registerInit({
       deps: {
         scaffolder: scaffolderActionsExtensionPoint,
-        logger: coreServices.logger,
         fetch: coreServices.fetch,
+        logger: coreServices.logger,
       },
-      async init({ scaffolder, logger, fetch }) {
-        logger.info('Registering HTTP advanced action');
+      async init({ scaffolder, fetch, logger }) {
+        logger.info('Registering HTTP advanced scaffolder action');
         scaffolder.addActions(
           createHttpAdvancedAction({ fetch }),
         );
