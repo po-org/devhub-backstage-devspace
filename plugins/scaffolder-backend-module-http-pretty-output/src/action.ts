@@ -23,7 +23,8 @@ export const createPrettyOutputAction = () =>
     },
 
     async handler(ctx) {
-      const { stepName, outputKey, maskKeys = [] } = ctx.input;
+      const { stepName, maskKeys = [] } = ctx.input;
+      const outputKey = ctx.input.outputKey || 'response';
 
       // Access steps via workspacePath context
       const step = (ctx as any).steps?.[stepName];
@@ -56,7 +57,7 @@ export const createPrettyOutputAction = () =>
 
       const pretty = JSON.stringify(mask(data), null, 2);
 
-      // This is the magic: same visual behavior as debug:log
+      // Same visual behavior as debug:log
       ctx.logger.info(pretty);
     },
   });
