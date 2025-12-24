@@ -1,0 +1,9 @@
+{
+  "scaffolder-backend-module-http-pretty-output": {
+    "hash": "4f630a1e970d1e6566beaafa4f1433a15bef3290",
+    "version": "0.1.0",
+    "role": "backend-plugin-module",
+    "packageName": "@red-hat-developer-hub/http-pretty-output",
+    "timestamp": "2025-12-24T01:22:13Z"
+  }
+}
