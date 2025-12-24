@@ -1,34 +1,12 @@
 {
   "name": "@red-hat-developer-hub/http-pretty-output",
   "version": "1.0.0",
-  "private": true,
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
-  "files": [
-    "dist"
-  ],
-  "scripts": {
-    "build": "tsc --build",
-    "clean": "rm -rf dist",
-    "lint": "eslint . --ext .ts,.tsx",
-    "prepublishOnly": "yarn build"
-  },
+  "license": "Apache-2.0",
   "dependencies": {
-    "@backstage/plugin-scaffolder-node": "1.7.0",
     "node-fetch": "3.3.2",
     "uuid": "9.0.0",
     "zod": "3.23.0"
-  },
-  "devDependencies": {
-    "@types/node": "20.5.1",
-    "@types/node-fetch": "3.0.3",
-    "typescript": "5.2.2",
-    "eslint": "8.56.0",
-    "eslint-config-prettier": "9.4.2",
-    "eslint-plugin-import": "2.30.0"
-  },
-  "peerDependencies": {
-    "@backstage/plugin-scaffolder-node": "1.7.0",
-    "@backstage/backend-plugin-api": "1.7.0"
   }
 }

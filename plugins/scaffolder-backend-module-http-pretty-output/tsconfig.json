@@ -1,8 +1,8 @@
 {
-  "extends": "@backstage/cli/config/tsconfig.json",
-  "include": ["src"],
   "compilerOptions": {
-    "outDir": "dist",
-    "rootDir": "src"
+    "baseUrl": ".",
+    "paths": {
+      "@backstage/plugin-scaffolder-node": ["../packages/backend-plugin-scaffolder-node/src"]
+    }
   }
 }
