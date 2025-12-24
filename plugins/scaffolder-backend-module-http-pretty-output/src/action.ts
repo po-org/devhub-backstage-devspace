@@ -4,17 +4,12 @@ import { z } from 'zod';
 export const createPrettyOutputAction = () =>
   createTemplateAction({
     id: 'http-pretty-output:log',
-    description:
-      'Pretty-prints JSON output from a previous scaffolder step, similar to debug:log',
+    description: 'Pretty-prints JSON data in scaffolder logs',
     schema: {
       input: z.object({
-        stepName: z.string({
-          description: 'The id of the step whose output should be formatted',
+        data: z.any({
+          description: 'The data to pretty-print (any JSON-serializable value)',
         }),
-        outputKey: z
-          .string()
-          .optional()
-          .default('response'),
         maskKeys: z
           .array(z.string())
           .optional()
@@ -23,21 +18,11 @@ export const createPrettyOutputAction = () =>
     },
 
     async handler(ctx) {
-      const { stepName, maskKeys = [] } = ctx.input;
-      const outputKey = ctx.input.outputKey || 'response';
+      const { data, maskKeys = [] } = ctx.input;
 
-      // Access steps via workspacePath context
-      const step = (ctx as any).steps?.[stepName];
-      if (!step) {
-        throw new Error(`Step '${stepName}' not found`);
-      }
-
-      let data = step.output?.[outputKey];
-
-      if (data === undefined) {
-        throw new Error(
-          `Output key '${outputKey}' not found on step '${stepName}'`,
-        );
+      if (data === undefined || data === null) {
+        ctx.logger.warn('No data provided to pretty-output action');
+        return;
       }
 
       const mask = (obj: any): any => {
@@ -55,9 +40,14 @@ export const createPrettyOutputAction = () =>
         return obj;
       };
 
-      const pretty = JSON.stringify(mask(data), null, 2);
-
-      // Same visual behavior as debug:log
-      ctx.logger.info(pretty);
+      try {
+        const pretty = JSON.stringify(mask(data), null, 2);
+        ctx.logger.info('--- Pretty JSON Output ---');
+        ctx.logger.info(pretty);
+        ctx.logger.info('--- End Pretty JSON Output ---');
+      } catch (error) {
+        ctx.logger.error(`Failed to stringify data: ${error}`);
+        throw new Error(`Failed to pretty-print data: ${error}`);
+      }
     },
   });
