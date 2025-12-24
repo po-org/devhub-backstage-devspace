@@ -15,8 +15,6 @@
   },
   "dependencies": {
     "@backstage/plugin-scaffolder-node": "1.7.0",
-    "@backstage/backend-plugin-api": "1.7.0",
-    "@backstage/integration": "1.16.4",
     "node-fetch": "3.3.2",
     "uuid": "9.0.0",
     "zod": "3.23.0"
