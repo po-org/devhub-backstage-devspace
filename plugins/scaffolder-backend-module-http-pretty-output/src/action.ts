@@ -23,9 +23,10 @@ export const createPrettyOutputAction = () =>
     },
 
     async handler(ctx) {
-      const { stepName, outputKey, maskKeys } = ctx.input;
+      const { stepName, outputKey, maskKeys = [] } = ctx.input;
 
-      const step = ctx.steps?.[stepName];
+      // Access steps via workspacePath context
+      const step = (ctx as any).steps?.[stepName];
       if (!step) {
         throw new Error(`Step '${stepName}' not found`);
       }
