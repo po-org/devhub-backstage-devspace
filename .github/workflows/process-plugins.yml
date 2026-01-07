@@ -35,19 +35,19 @@ jobs:
         repository: po-org/devhub-backstage-devspace  # Add this line
         fetch-depth: 0
         token: ${{ secrets.GIT_TOKEN }}
-        path: devhub-catalog
+        path: devhub-backstage-devspace
 
     - name: 📥 Checkout target repository
       uses: actions/checkout@v4
       with:
-        repository: C-Nell/devhub-gitops
+        repository: po-org/devhub-gitops
         ref: main
         token: ${{ secrets.GIT_TOKEN}}
         path: devhub-gitops 
         
     - name: 🔍 Check if plugins in folder need processing
       id: check_changes
-      working-directory: devhub-catalog
+      working-directory: devhub-backstage-devspace
       run: |
         set -euo pipefail
         
@@ -89,7 +89,7 @@ jobs:
     - name: 🔍 Get Yarn version
       if: steps.check_changes.outputs.has_changes == 'true'
       id: yarn-version
-      working-directory: devhub-catalog
+      working-directory: devhub-backstage-devspace
       run: |
         file=$(ls .yarn/releases/yarn-*.cjs | head -n 1)
         version=$(basename "$file" | sed -E 's/^yarn-([0-9]+\.[0-9]+\.[0-9]+)\.cjs$/\1/')
@@ -127,13 +127,13 @@ jobs:
 
     - name: 📦 Install dependencies (fresh each run)
       if: steps.check_changes.outputs.has_changes == 'true'
-      working-directory: devhub-catalog
+      working-directory: devhub-backstage-devspace
       run: node .yarn/releases/yarn-${YARN_VERSION}.cjs install --mode=skip-build --no-immutable
 
     - name: 🧩 Process plugins
       if: steps.check_changes.outputs.has_changes == 'true'
       id: process
-      working-directory: devhub-catalog
+      working-directory: devhub-backstage-devspace
       run: |
         set -euo pipefail
         
@@ -161,7 +161,7 @@ jobs:
 
     - name: 📤 Copy tarball to pod
       if: steps.check_changes.outputs.has_changes == 'true'
-      working-directory: devhub-catalog
+      working-directory: devhub-backstage-devspace
       run: |
         set -euo pipefail
         POD=$(oc -n "$NS" get pod -l name=httpd-example -o jsonpath='{.items[?(@.status.phase=="Running")].metadata.name}' | awk '{print $1}')
@@ -186,10 +186,6 @@ jobs:
         done
 
 
-
-
-
-
     - name: Update dynamic-plugins.yaml
       if: steps.check_changes.outputs.has_changes == 'true'
       run: |
@@ -209,7 +205,7 @@ jobs:
         echo ""
         
         # Scan for plugins in the catalog repo
-        for file in devhub-catalog/processed/*.tgz; do
+        for file in devhub-backstage-devspace/processed/*.tgz; do
           [ -f "$file" ] || continue
           
           filename=$(basename "$file")
@@ -287,9 +283,10 @@ jobs:
         git add core/dynamic-plugins.yaml
         git diff --staged --quiet || git commit -m "chore: update dynamic-plugins.yaml with latest plugins"
         git push origin main
+        
     - name: 💾 Update metadata in file
       if: steps.check_changes.outputs.has_changes == 'true'
-      working-directory: devhub-catalog
+      working-directory: devhub-backstage-devspace
       run: |
         set -euo pipefail
         
@@ -383,7 +380,7 @@ jobs:
     - name: Commit metadata to current repo
       if: steps.check_changes.outputs.has_changes == 'true'
       run: |
-        cd devhub-catalog
+        cd devhub-backstage-devspace
         
         echo "📋 Metadata content before commit:"
         cat processed/.metadata.json
