@@ -32,6 +32,7 @@ jobs:
     - name: 📥 Checkout repository
       uses: actions/checkout@v4
       with:
+        repository: po-org/devhub-backstage-devspace  # Add this line
         fetch-depth: 0
         token: ${{ secrets.GIT_TOKEN }}
         path: devhub-catalog
