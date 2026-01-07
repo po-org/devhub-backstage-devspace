@@ -12,9 +12,8 @@ export const webhookPlugin = createBackendPlugin({
       deps: {
         logger: coreServices.logger,
         httpRouter: coreServices.httpRouter,
-        notifications: coreServices.notifications,
       },
-      async init({ logger, httpRouter, notifications }) {
+      async init({ logger, httpRouter }) {
         const router = Router();
         router.use(express.json());
 
@@ -81,25 +80,23 @@ export const webhookPlugin = createBackendPlugin({
               req.headers['x-source'] ||
               'webhook';
 
-            // Send notification
-            await notifications.send({
-              recipients: {
-                type: 'entity',
-                entityRef: targetUser.includes(':') 
-                  ? targetUser 
-                  : `user:default/${targetUser}`,
-              },
-              payload: {
-                title,
-                description: message,
-                ...(link && { link }),
-                severity,
-                topic,
-              },
+            // Log the webhook data (notifications will be handled separately)
+            logger.info('Webhook processed', { 
+              user: targetUser, 
+              topic,
+              title,
+              severity 
             });
 
-            logger.info('Notification sent', { user: targetUser, topic });
-            return res.status(200).json({ success: true });
+            return res.status(200).json({ 
+              success: true,
+              message: 'Webhook received',
+              data: {
+                user: targetUser,
+                title,
+                topic
+              }
+            });
 
           } catch (error: any) {
             logger.error('Webhook processing failed', { error: error.message });
@@ -111,35 +108,82 @@ export const webhookPlugin = createBackendPlugin({
         router.post('/aap', async (req, res) => {
           req.body.source = req.body.source || 'aap';
           req.headers['x-source'] = 'aap';
-          return router.handle(
-            { ...req, method: 'POST', url: '/' } as any,
-            res,
-            () => {}
-          );
+          
+          // Call the main handler
+          const payload = req.body;
+          const targetUser = 
+            payload.backstage_user ||
+            payload.user ||
+            payload.userId;
+          
+          if (!targetUser) {
+            return res.status(400).json({ 
+              error: 'Missing user identifier',
+              hint: 'Include backstage_user, user, or userId in payload'
+            });
+          }
+
+          logger.info('AAP webhook received', { payload, user: targetUser });
+          
+          return res.status(200).json({ 
+            success: true,
+            source: 'aap',
+            user: targetUser
+          });
         });
 
         router.post('/github', async (req, res) => {
           req.body.source = req.body.source || 'github';
           req.headers['x-source'] = 'github';
-          return router.handle(
-            { ...req, method: 'POST', url: '/' } as any,
-            res,
-            () => {}
-          );
+          
+          const payload = req.body;
+          const targetUser = 
+            payload.backstage_user ||
+            payload.user ||
+            payload.userId;
+          
+          if (!targetUser) {
+            return res.status(400).json({ 
+              error: 'Missing user identifier'
+            });
+          }
+
+          logger.info('GitHub webhook received', { payload, user: targetUser });
+          
+          return res.status(200).json({ 
+            success: true,
+            source: 'github',
+            user: targetUser
+          });
         });
 
         router.post('/aws', async (req, res) => {
           req.body.source = req.body.source || 'aws';
           req.headers['x-source'] = 'aws';
-          return router.handle(
-            { ...req, method: 'POST', url: '/' } as any,
-            res,
-            () => {}
-          );
+          
+          const payload = req.body;
+          const targetUser = 
+            payload.backstage_user ||
+            payload.username ||
+            payload.user;
+          
+          if (!targetUser) {
+            return res.status(400).json({ 
+              error: 'Missing user identifier'
+            });
+          }
+
+          logger.info('AWS webhook received', { payload, user: targetUser });
+          
+          return res.status(200).json({ 
+            success: true,
+            source: 'aws',
+            user: targetUser
+          });
         });
 
         // Health check
-        router.get('/health', (req, res) => {
+        router.get('/health', (_req, res) => {
           res.json({ 
             status: 'ok',
             endpoints: {
@@ -152,7 +196,7 @@ export const webhookPlugin = createBackendPlugin({
           });
         });
 
-        httpRouter.use('/webhook', router);
+        httpRouter.use(router);
         httpRouter.addAuthPolicy({
           path: '/webhook',
           allow: 'unauthenticated',
