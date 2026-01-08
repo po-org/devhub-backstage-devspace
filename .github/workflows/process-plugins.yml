@@ -11,10 +11,6 @@ on:
 
     paths:
       - 'plugins/**'
-      - 'scripts/process-plugin.js'
-      - 'package.json'
-      - '.yarnrc.yml' 
-      - 'processed/.metadata.json'
       - '.github/workflows/process-plugins.yml'
 
   workflow_dispatch:
