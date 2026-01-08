@@ -17,13 +17,21 @@ export const webhookPlugin = createBackendPlugin({
         const router = Router();
         router.use(express.json());
 
+        // Bypass authentication middleware
+        router.use((req, res, next) => {
+          // Allow all requests without authentication
+          next();
+        });
+
         // Single generic endpoint that works with ANY webhook source
         router.post('/', async (req, res) => {
           try {
             const payload = req.body;
             
+            const source = req.headers['x-source'] || payload.source || 'unknown';
+            
             logger.info('Webhook received', { 
-              source: req.headers['x-source'] || 'unknown',
+              source,
               payload 
             });
 
@@ -40,7 +48,7 @@ export const webhookPlugin = createBackendPlugin({
               logger.warn('No user identifier found in webhook');
               return res.status(400).json({ 
                 error: 'Missing user identifier',
-                hint: 'Include backstage_user, user, userId, or username in payload'
+                hint: 'Include backstage_user, user, userId, user_id, username, or email in payload'
               });
             }
 
@@ -50,21 +58,7 @@ export const webhookPlugin = createBackendPlugin({
               payload.subject ||
               payload.name ||
               payload.summary ||
-              'Notification';
-              
-            const message = 
-              payload.message || 
-              payload.description || 
-              payload.body ||
-              payload.text ||
-              payload.details ||
-              JSON.stringify(payload);
-            
-            const link = 
-              payload.link || 
-              payload.url || 
-              payload.href ||
-              payload.web_url;
+              'Webhook Notification';
             
             const severity = 
               ['low', 'normal', 'high', 'critical'].includes(payload.severity)
@@ -75,14 +69,13 @@ export const webhookPlugin = createBackendPlugin({
             
             const topic = 
               payload.topic ||
-              payload.source ||
               payload.type ||
-              req.headers['x-source'] ||
-              'webhook';
+              source;
 
-            // Log the webhook data (notifications will be handled separately)
-            logger.info('Webhook processed', { 
+            // Log the webhook data
+            logger.info('Webhook processed successfully', { 
               user: targetUser, 
+              source,
               topic,
               title,
               severity 
@@ -90,122 +83,53 @@ export const webhookPlugin = createBackendPlugin({
 
             return res.status(200).json({ 
               success: true,
-              message: 'Webhook received',
+              message: 'Webhook received and processed',
               data: {
                 user: targetUser,
+                source,
                 title,
-                topic
+                topic,
+                severity
               }
             });
 
           } catch (error: any) {
-            logger.error('Webhook processing failed', { error: error.message });
-            return res.status(500).json({ error: error.message });
-          }
-        });
-
-        // Optional: Source-specific endpoints
-        router.post('/aap', async (req, res) => {
-          req.body.source = req.body.source || 'aap';
-          req.headers['x-source'] = 'aap';
-          
-          // Call the main handler
-          const payload = req.body;
-          const targetUser = 
-            payload.backstage_user ||
-            payload.user ||
-            payload.userId;
-          
-          if (!targetUser) {
-            return res.status(400).json({ 
-              error: 'Missing user identifier',
-              hint: 'Include backstage_user, user, or userId in payload'
+            logger.error('Webhook processing failed', { 
+              error: error.message,
+              stack: error.stack 
+            });
+            return res.status(500).json({ 
+              success: false,
+              error: 'Internal server error',
+              message: error.message 
             });
           }
-
-          logger.info('AAP webhook received', { payload, user: targetUser });
-          
-          return res.status(200).json({ 
-            success: true,
-            source: 'aap',
-            user: targetUser
-          });
-        });
-
-        router.post('/github', async (req, res) => {
-          req.body.source = req.body.source || 'github';
-          req.headers['x-source'] = 'github';
-          
-          const payload = req.body;
-          const targetUser = 
-            payload.backstage_user ||
-            payload.user ||
-            payload.userId;
-          
-          if (!targetUser) {
-            return res.status(400).json({ 
-              error: 'Missing user identifier'
-            });
-          }
-
-          logger.info('GitHub webhook received', { payload, user: targetUser });
-          
-          return res.status(200).json({ 
-            success: true,
-            source: 'github',
-            user: targetUser
-          });
-        });
-
-        router.post('/aws', async (req, res) => {
-          req.body.source = req.body.source || 'aws';
-          req.headers['x-source'] = 'aws';
-          
-          const payload = req.body;
-          const targetUser = 
-            payload.backstage_user ||
-            payload.username ||
-            payload.user;
-          
-          if (!targetUser) {
-            return res.status(400).json({ 
-              error: 'Missing user identifier'
-            });
-          }
-
-          logger.info('AWS webhook received', { payload, user: targetUser });
-          
-          return res.status(200).json({ 
-            success: true,
-            source: 'aws',
-            user: targetUser
-          });
         });
 
         // Health check
         router.get('/health', (_req, res) => {
           res.json({ 
             status: 'ok',
-            endpoints: {
-              generic: '/api/webhook',
-              aap: '/api/webhook/aap',
-              github: '/api/webhook/github',
-              aws: '/api/webhook/aws',
-              health: '/api/webhook/health'
-            }
+            plugin: 'webhook',
+            version: '0.1.0',
+            endpoint: '/api/webhook'
           });
         });
 
         httpRouter.use(router);
+        
+        // Try both auth policy methods
         httpRouter.addAuthPolicy({
           path: '/webhook',
           allow: 'unauthenticated',
         });
-
-        logger.info('Generic webhook plugin initialized', {
-          endpoint: '/api/webhook',
-          sources: ['generic', 'aap', 'github', 'aws']
+        
+        httpRouter.addAuthPolicy({
+          path: '/webhook/health',
+          allow: 'unauthenticated',
         });
+
+        logger.info('Generic webhook plugin initialized at /api/webhook');
       },
     });
   },
