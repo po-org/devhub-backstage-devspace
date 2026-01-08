@@ -4,6 +4,7 @@ import {
 } from '@backstage/backend-plugin-api';
 import { Router } from 'express';
 import express from 'express';
+import { createLegacyAuthAdapters } from '@backstage/backend-common';
 
 export const webhookPlugin = createBackendPlugin({
   pluginId: 'webhook',
@@ -12,49 +13,73 @@ export const webhookPlugin = createBackendPlugin({
       deps: {
         logger: coreServices.logger,
         httpRouter: coreServices.httpRouter,
+        auth: coreServices.auth,
+        httpAuth: coreServices.httpAuth,
         config: coreServices.rootConfig,
       },
-      async init({ logger, httpRouter, config }) {
+      async init({ logger, httpRouter, auth, httpAuth, config }) {
         const router = Router();
         router.use(express.json());
 
-        // Fool-proof auth middleware - handles both authenticated and unauthenticated requests
-        router.use((req, res, next) => {
-          // Check for webhook API key first (optional layer)
-          const webhookApiKey = config.getOptionalString('webhook.apiKey');
-          const providedApiKey = req.headers['x-webhook-key'] as string;
-          
-          if (webhookApiKey) {
-            // If API key is configured, validate it
-            if (providedApiKey === webhookApiKey) {
-              logger.debug('Valid webhook API key provided');
+        // Service token validation middleware
+        const validateServiceToken = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
+          try {
+            // Option 1: Try RHDH service credentials
+            try {
+              await httpAuth.credentials(req, {
+                allow: ['service'],
+                allowLimitedAccess: true,
+              });
+              logger.debug('Valid service credentials');
               return next();
+            } catch (e) {
+              // Not a valid service token, try custom token
             }
-            logger.warn('Invalid or missing webhook API key');
-            return res.status(401).json({ 
+
+            // Option 2: Check for custom webhook token
+            const authHeader = req.headers.authorization;
+            const webhookToken = config.getOptionalString('webhook.token');
+            
+            if (webhookToken) {
+              if (authHeader === `Bearer ${webhookToken}`) {
+                logger.debug('Valid webhook token');
+                return next();
+              }
+              
+              logger.warn('Invalid or missing webhook token');
+              return res.status(401).json({
+                error: 'Unauthorized',
+                message: 'Valid Authorization Bearer token required'
+              });
+            }
+
+            // Option 3: If no token configured, reject
+            logger.warn('No authentication provided and no webhook token configured');
+            return res.status(401).json({
               error: 'Unauthorized',
-              hint: 'Provide X-Webhook-Key header'
+              message: 'Authentication required. Configure webhook.token in app-config.yaml'
+            });
+
+          } catch (error: any) {
+            logger.error('Authentication error', { error: error.message });
+            return res.status(401).json({
+              error: 'Unauthorized',
+              message: 'Authentication failed'
             });
           }
-          
-          // If no API key configured, allow all requests
-          logger.debug('No API key required, allowing request');
-          next();
-        });
+        };
 
-        // Single generic endpoint that works with ANY webhook source
+        // Apply authentication to all routes
+        router.use(validateServiceToken);
+
+        // Webhook endpoint
         router.post('/', async (req, res) => {
           try {
             const payload = req.body;
-            
             const source = req.headers['x-source'] || payload.source || 'unknown';
             
-            logger.info('Webhook received', { 
-              source,
-              payload 
-            });
+            logger.info('Webhook received', { source, payload });
 
-            // Extract user - support multiple common field names
             const targetUser = 
               payload.backstage_user ||
               payload.user ||
@@ -71,7 +96,6 @@ export const webhookPlugin = createBackendPlugin({
               });
             }
 
-            // Extract notification content - flexible field mapping
             const title = 
               payload.title || 
               payload.subject ||
@@ -86,19 +110,14 @@ export const webhookPlugin = createBackendPlugin({
                   ? 'high'
                   : 'normal';
             
-            const topic = 
-              payload.topic ||
-              payload.type ||
-              source;
+            const topic = payload.topic || payload.type || source;
 
-            // Log the webhook data
             logger.info('Webhook processed successfully', { 
               user: targetUser, 
               source,
               topic,
               title,
-              severity,
-              payload
+              severity
             });
 
             return res.status(200).json({ 
@@ -127,36 +146,26 @@ export const webhookPlugin = createBackendPlugin({
         });
 
         // Health check
-        router.get('/health', (_req, res) => {
-          const apiKeyConfigured = !!config.getOptionalString('webhook.apiKey');
+        router.get('/health', async (_req, res) => {
+          const tokenConfigured = !!config.getOptionalString('webhook.token');
           res.json({ 
             status: 'ok',
             plugin: 'webhook',
             version: '0.1.0',
             endpoint: '/api/webhook',
-            authentication: apiKeyConfigured ? 'X-Webhook-Key required' : 'disabled'
+            authentication: tokenConfigured ? 'Bearer token required' : 'Service token required'
           });
         });
 
-        // Register the router BEFORE auth policies
         httpRouter.use(router);
-        
-        // Add comprehensive auth policies
-        const paths = ['/webhook', '/webhook/', '/webhook/health', '/health'];
-        paths.forEach(path => {
-          httpRouter.addAuthPolicy({
-            path,
-            allow: 'unauthenticated',
-          });
-        });
 
-        const authStatus = config.getOptionalString('webhook.apiKey') 
-          ? 'X-Webhook-Key authentication enabled' 
-          : 'Open access (no authentication)';
+        const authMethod = config.getOptionalString('webhook.token') 
+          ? 'Bearer token authentication' 
+          : 'Service token authentication';
 
-        logger.info('Generic webhook plugin initialized', {
+        logger.info('Webhook plugin initialized', {
           endpoint: '/api/webhook',
-          authentication: authStatus
+          authentication: authMethod
         });
       },
     });
