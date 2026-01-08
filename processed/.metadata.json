@@ -7,10 +7,10 @@
     "timestamp": "2025-12-24T01:22:13Z"
   },
   "webhook-backend": {
-    "hash": "784ecbb25df7c13dc1ccaaa84fbaeb2849db2020",
+    "hash": "9011c433fda258e1dd3999c8e71fbe08f8154eb1",
     "version": "0.1.0",
     "role": "backend-plugin",
     "packageName": "@red-hat-developer-hub/webhook-backend-plugin",
-    "timestamp": "2026-01-08T01:01:21Z"
+    "timestamp": "2026-01-08T01:23:01Z"
   }
 }
