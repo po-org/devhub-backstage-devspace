@@ -12,10 +12,35 @@ export const webhookPlugin = createBackendPlugin({
       deps: {
         logger: coreServices.logger,
         httpRouter: coreServices.httpRouter,
+        config: coreServices.rootConfig,
       },
-      async init({ logger, httpRouter }) {
+      async init({ logger, httpRouter, config }) {
         const router = Router();
         router.use(express.json());
+
+        // Fool-proof auth middleware - handles both authenticated and unauthenticated requests
+        router.use((req, res, next) => {
+          // Check for webhook API key first (optional layer)
+          const webhookApiKey = config.getOptionalString('webhook.apiKey');
+          const providedApiKey = req.headers['x-webhook-key'] as string;
+          
+          if (webhookApiKey) {
+            // If API key is configured, validate it
+            if (providedApiKey === webhookApiKey) {
+              logger.debug('Valid webhook API key provided');
+              return next();
+            }
+            logger.warn('Invalid or missing webhook API key');
+            return res.status(401).json({ 
+              error: 'Unauthorized',
+              hint: 'Provide X-Webhook-Key header'
+            });
+          }
+          
+          // If no API key configured, allow all requests
+          logger.debug('No API key required, allowing request');
+          next();
+        });
 
         // Single generic endpoint that works with ANY webhook source
         router.post('/', async (req, res) => {
@@ -103,24 +128,35 @@ export const webhookPlugin = createBackendPlugin({
 
         // Health check
         router.get('/health', (_req, res) => {
+          const apiKeyConfigured = !!config.getOptionalString('webhook.apiKey');
           res.json({ 
             status: 'ok',
             plugin: 'webhook',
             version: '0.1.0',
             endpoint: '/api/webhook',
-            authentication: 'disabled'
+            authentication: apiKeyConfigured ? 'X-Webhook-Key required' : 'disabled'
           });
         });
 
+        // Register the router BEFORE auth policies
         httpRouter.use(router);
-        httpRouter.addAuthPolicy({
-          path: '/webhook',
-          allow: 'unauthenticated',
+        
+        // Add comprehensive auth policies
+        const paths = ['/webhook', '/webhook/', '/webhook/health', '/health'];
+        paths.forEach(path => {
+          httpRouter.addAuthPolicy({
+            path,
+            allow: 'unauthenticated',
+          });
         });
+
+        const authStatus = config.getOptionalString('webhook.apiKey') 
+          ? 'X-Webhook-Key authentication enabled' 
+          : 'Open access (no authentication)';
 
         logger.info('Generic webhook plugin initialized', {
           endpoint: '/api/webhook',
-          authentication: 'disabled - open access'
+          authentication: authStatus
         });
       },
     });
