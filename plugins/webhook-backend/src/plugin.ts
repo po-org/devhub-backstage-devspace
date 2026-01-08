@@ -2,7 +2,6 @@ import {
   coreServices,
   createBackendPlugin,
 } from '@backstage/backend-plugin-api';
-import { Router } from 'express';
 import express from 'express';
 
 export const webhookPlugin = createBackendPlugin({
@@ -15,81 +14,86 @@ export const webhookPlugin = createBackendPlugin({
         config: coreServices.rootConfig,
       },
       async init({ logger, httpRouter, config }) {
-        const router = Router();
+        const router = express.Router();
+
+        // Parse JSON bodies
         router.use(express.json());
 
-        // Simple token validation middleware
+        // Optional Bearer token auth
         router.use((req, res, next) => {
-          const authHeader = req.headers.authorization;
           const webhookToken = config.getOptionalString('webhook.token');
-          
+          const authHeader = req.headers.authorization;
+
           if (!webhookToken) {
-            // No token configured, allow all
             logger.debug('No webhook token configured, allowing request');
             return next();
           }
-          
+
           if (authHeader === `Bearer ${webhookToken}`) {
-            logger.debug('Valid webhook token');
             return next();
           }
-          
-          logger.warn('Invalid or missing webhook token');
+
+          logger.warn('Unauthorized webhook request');
           return res.status(401).json({
             error: 'Unauthorized',
-            message: 'Valid Authorization Bearer token required'
+            message: 'Valid Authorization Bearer token required',
           });
         });
 
-        // Webhook endpoint
+        /**
+         * POST /api/webhook
+         */
         router.post('/', async (req, res) => {
           try {
-            const payload = req.body;
-            const source = req.headers['x-source'] || payload.source || 'unknown';
-            
+            const payload = req.body ?? {};
+            const source =
+              req.headers['x-source'] ||
+              payload.source ||
+              'unknown';
+
             logger.info('Webhook received', { source, payload });
 
-            const targetUser = 
+            const targetUser =
               payload.backstage_user ||
               payload.user ||
               payload.userId ||
               payload.user_id ||
               payload.username ||
               payload.email?.split('@')[0];
-            
+
             if (!targetUser) {
-              logger.warn('No user identifier found in webhook');
-              return res.status(400).json({ 
+              return res.status(400).json({
                 error: 'Missing user identifier',
-                hint: 'Include backstage_user, user, userId, user_id, username, or email in payload'
+                hint:
+                  'Include backstage_user, user, userId, user_id, username, or email in payload',
               });
             }
 
-            const title = 
-              payload.title || 
+            const title =
+              payload.title ||
               payload.subject ||
               payload.name ||
               payload.summary ||
               'Webhook Notification';
-            
-            const severity = 
+
+            const severity =
               ['low', 'normal', 'high', 'critical'].includes(payload.severity)
                 ? payload.severity
-                : (payload.status === 'failed' || payload.status === 'error')
-                  ? 'high'
-                  : 'normal';
-            
+                : payload.status === 'failed' || payload.status === 'error'
+                ? 'high'
+                : 'normal';
+
             const topic = payload.topic || payload.type || source;
 
-            logger.info('Webhook processed successfully', { 
-              user: targetUser, 
+            logger.info('Webhook processed', {
+              user: targetUser,
               source,
-              topic,
               title,
-              severity
+              topic,
+              severity,
             });
 
-            return res.status(200).json({ 
+            return res.status(200).json({
               success: true,
               message: 'Webhook received and processed',
               data: {
@@ -97,48 +101,44 @@ export const webhookPlugin = createBackendPlugin({
                 source,
                 title,
                 topic,
-                severity
-              }
+                severity,
+              },
             });
-
           } catch (error: any) {
-            logger.error('Webhook processing failed', { 
-              error: error.message,
-              stack: error.stack 
-            });
-            return res.status(500).json({ 
+            logger.error('Webhook processing failed', error);
+            return res.status(500).json({
               success: false,
               error: 'Internal server error',
-              message: error.message 
             });
           }
         });
 
-        // Health check
+        /**
+         * GET /api/webhook/health
+         */
         router.get('/health', (_req, res) => {
-          const tokenConfigured = !!config.getOptionalString('webhook.token');
-          res.json({ 
+          res.json({
             status: 'ok',
             plugin: 'webhook',
-            version: '0.1.0',
             endpoint: '/api/webhook',
-            authentication: tokenConfigured ? 'Bearer token required' : 'open'
+            auth:
+              config.getOptionalString('webhook.token')
+                ? 'bearer-token'
+                : 'open',
           });
         });
 
-        httpRouter.use(router);
+        // 🔑 IMPORTANT: mount router correctly
+        httpRouter.use('/', router);
+
+        // 🔑 IMPORTANT: auth policy path is RELATIVE to plugin root
         httpRouter.addAuthPolicy({
-          path: '/webhook',
+          path: '/',
           allow: 'unauthenticated',
         });
 
-        const authMethod = config.getOptionalString('webhook.token') 
-          ? 'Bearer token authentication' 
-          : 'Open access';
-
-        logger.info('Webhook plugin initialized', {
+        logger.info('Webhook backend plugin initialized', {
           endpoint: '/api/webhook',
-          authentication: authMethod
         });
       },
     });
