@@ -76,4 +76,53 @@ export const webhookPlugin = createBackendPlugin({
               payload
             });
 
-            return res.status(200).json({
+            return res.status(200).json({ 
+              success: true,
+              message: 'Webhook received and processed',
+              data: {
+                user: targetUser,
+                source,
+                title,
+                topic,
+                severity
+              }
+            });
+
+          } catch (error: any) {
+            logger.error('Webhook processing failed', { 
+              error: error.message,
+              stack: error.stack 
+            });
+            return res.status(500).json({ 
+              success: false,
+              error: 'Internal server error',
+              message: error.message 
+            });
+          }
+        });
+
+        // Health check
+        router.get('/health', (_req, res) => {
+          res.json({ 
+            status: 'ok',
+            plugin: 'webhook',
+            version: '0.1.0',
+            endpoint: '/api/webhook',
+            authentication: 'disabled'
+          });
+        });
+
+        httpRouter.use(router);
+        httpRouter.addAuthPolicy({
+          path: '/webhook',
+          allow: 'unauthenticated',
+        });
+
+        logger.info('Generic webhook plugin initialized', {
+          endpoint: '/api/webhook',
+          authentication: 'disabled - open access'
+        });
+      },
+    });
+  },
+});
