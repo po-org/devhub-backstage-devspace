@@ -17,12 +17,6 @@ export const webhookPlugin = createBackendPlugin({
         const router = Router();
         router.use(express.json());
 
-        // Bypass authentication middleware
-        router.use((req, res, next) => {
-          // Allow all requests without authentication
-          next();
-        });
-
         // Single generic endpoint that works with ANY webhook source
         router.post('/', async (req, res) => {
           try {
@@ -78,59 +72,8 @@ export const webhookPlugin = createBackendPlugin({
               source,
               topic,
               title,
-              severity 
+              severity,
+              payload
             });
 
-            return res.status(200).json({ 
-              success: true,
-              message: 'Webhook received and processed',
-              data: {
-                user: targetUser,
-                source,
-                title,
-                topic,
-                severity
-              }
-            });
-
-          } catch (error: any) {
-            logger.error('Webhook processing failed', { 
-              error: error.message,
-              stack: error.stack 
-            });
-            return res.status(500).json({ 
-              success: false,
-              error: 'Internal server error',
-              message: error.message 
-            });
-          }
-        });
-
-        // Health check
-        router.get('/health', (_req, res) => {
-          res.json({ 
-            status: 'ok',
-            plugin: 'webhook',
-            version: '0.1.0',
-            endpoint: '/api/webhook'
-          });
-        });
-
-        httpRouter.use(router);
-        
-        // Try both auth policy methods
-        httpRouter.addAuthPolicy({
-          path: '/webhook',
-          allow: 'unauthenticated',
-        });
-        
-        httpRouter.addAuthPolicy({
-          path: '/webhook/health',
-          allow: 'unauthenticated',
-        });
-
-        logger.info('Generic webhook plugin initialized at /api/webhook');
-      },
-    });
-  },
-});
+            return res.status(200).json({
