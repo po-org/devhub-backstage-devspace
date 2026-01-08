@@ -16,20 +16,19 @@ export const webhookPlugin = createBackendPlugin({
       async init({ logger, httpRouter, config }) {
         const router = express.Router();
 
-        // Parse JSON bodies
+        // JSON body parsing
         router.use(express.json());
 
         // Optional Bearer token auth
         router.use((req, res, next) => {
-          const webhookToken = config.getOptionalString('webhook.token');
+          const token = config.getOptionalString('webhook.token');
           const authHeader = req.headers.authorization;
 
-          if (!webhookToken) {
-            logger.debug('No webhook token configured, allowing request');
+          if (!token) {
             return next();
           }
 
-          if (authHeader === `Bearer ${webhookToken}`) {
+          if (authHeader === `Bearer ${token}`) {
             return next();
           }
 
@@ -51,7 +50,7 @@ export const webhookPlugin = createBackendPlugin({
               payload.source ||
               'unknown';
 
-            logger.info('Webhook received', { source, payload });
+            logger.info('Webhook received', { source });
 
             const targetUser =
               payload.backstage_user ||
@@ -87,7 +86,6 @@ export const webhookPlugin = createBackendPlugin({
 
             logger.info('Webhook processed', {
               user: targetUser,
-              source,
               title,
               topic,
               severity,
@@ -95,7 +93,6 @@ export const webhookPlugin = createBackendPlugin({
 
             return res.status(200).json({
               success: true,
-              message: 'Webhook received and processed',
               data: {
                 user: targetUser,
                 source,
@@ -104,8 +101,8 @@ export const webhookPlugin = createBackendPlugin({
                 severity,
               },
             });
-          } catch (error: any) {
-            logger.error('Webhook processing failed', error);
+          } catch (error) {
+            logger.error('Webhook handler failed', error);
             return res.status(500).json({
               success: false,
               error: 'Internal server error',
@@ -128,10 +125,16 @@ export const webhookPlugin = createBackendPlugin({
           });
         });
 
-        // 🔑 IMPORTANT: mount router correctly
-        httpRouter.use('/', router);
+        /**
+         * IMPORTANT:
+         * - DO NOT pass a path
+         * - Backstage mounts this at /api/webhook automatically
+         */
+        httpRouter.use(router);
 
-        // 🔑 IMPORTANT: auth policy path is RELATIVE to plugin root
+        /**
+         * Auth policy paths are RELATIVE to /api/webhook
+         */
         httpRouter.addAuthPolicy({
           path: '/',
           allow: 'unauthenticated',
