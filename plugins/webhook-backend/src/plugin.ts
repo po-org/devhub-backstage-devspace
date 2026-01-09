@@ -6,8 +6,7 @@ import {
 import express from 'express';
 
 /**
- * Local service ref for Notifications.
- * This matches the service already provided by RHDH at runtime.
+ * Optional Notifications service
  */
 const notificationsServiceRef = createServiceRef<{
   createNotification(options: {
@@ -52,13 +51,14 @@ export const webhookPlugin = createBackendPlugin({
         logger: coreServices.logger,
         httpRouter: coreServices.httpRouter,
         config: coreServices.rootConfig,
-        notifications: notificationsServiceRef,
+
+        // 🔑 OPTIONAL dependency
+        notifications: notificationsServiceRef.optional(),
       },
       async init({ logger, httpRouter, config, notifications }) {
         const router = express.Router();
         router.use(express.json());
 
-        // Optional Bearer token auth
         router.use((req, res, next) => {
           const token = config.getOptionalString('webhook.token');
           if (!token) return next();
@@ -67,7 +67,6 @@ export const webhookPlugin = createBackendPlugin({
             return next();
           }
 
-          logger.warn('Unauthorized webhook request');
           return res.status(401).json({ error: 'Unauthorized' });
         });
 
@@ -77,13 +76,10 @@ export const webhookPlugin = createBackendPlugin({
             const entityRef = resolveRecipient(payload);
 
             if (!entityRef) {
-              return res.status(400).json({
-                error: 'Missing recipient',
-              });
+              return res.status(400).json({ error: 'Missing recipient' });
             }
 
             const title = payload.title ?? 'Webhook Notification';
-
             const severity: 'low' | 'normal' | 'high' | 'critical' =
               ['low', 'normal', 'high', 'critical'].includes(payload.severity)
                 ? payload.severity
@@ -96,18 +92,26 @@ export const webhookPlugin = createBackendPlugin({
               payload.link ??
               (payload.taskId ? `/tasks/${payload.taskId}` : undefined);
 
-            await notifications.createNotification({
-              recipients: {
-                type: 'entity',
-                entityRef,
-              },
-              payload: {
-                title,
-                description,
-                severity,
-                link,
-              },
-            });
+            // 🔔 Only send notification if service exists
+            if (notifications) {
+              await notifications.createNotification({
+                recipients: {
+                  type: 'entity',
+                  entityRef,
+                },
+                payload: {
+                  title,
+                  description,
+                  severity,
+                  link,
+                },
+              });
+            } else {
+              logger.warn(
+                'Notifications service not available; skipping notification',
+                { entityRef, title },
+              );
+            }
 
             return res.json({ success: true });
           } catch (error) {
