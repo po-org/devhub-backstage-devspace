@@ -1,8 +1,27 @@
 import {
   coreServices,
   createBackendPlugin,
+  createServiceRef,
 } from '@backstage/backend-plugin-api';
 import express from 'express';
+
+/**
+ * Local service ref for Notifications.
+ * This matches the service already provided by RHDH at runtime.
+ */
+const notificationsServiceRef = createServiceRef<{
+  createNotification(options: {
+    recipients: { type: 'entity'; entityRef: string };
+    payload: {
+      title: string;
+      description?: string;
+      severity?: 'low' | 'normal' | 'high' | 'critical';
+      link?: string;
+    };
+  }): Promise<void>;
+}>({
+  id: 'notifications',
+});
 
 function resolveRecipient(payload: any): string | undefined {
   const raw =
@@ -33,7 +52,7 @@ export const webhookPlugin = createBackendPlugin({
         logger: coreServices.logger,
         httpRouter: coreServices.httpRouter,
         config: coreServices.rootConfig,
-        notifications: coreServices.notifications,
+        notifications: notificationsServiceRef,
       },
       async init({ logger, httpRouter, config, notifications }) {
         const router = express.Router();
@@ -52,9 +71,6 @@ export const webhookPlugin = createBackendPlugin({
           return res.status(401).json({ error: 'Unauthorized' });
         });
 
-        /**
-         * POST /api/webhook
-         */
         router.post('/', async (req, res) => {
           try {
             const payload = req.body ?? {};
@@ -80,7 +96,6 @@ export const webhookPlugin = createBackendPlugin({
               payload.link ??
               (payload.taskId ? `/tasks/${payload.taskId}` : undefined);
 
-            // 🔔 RHDH-native notification
             await notifications.createNotification({
               recipients: {
                 type: 'entity',
@@ -94,15 +109,15 @@ export const webhookPlugin = createBackendPlugin({
               },
             });
 
-            res.json({ success: true });
+            return res.json({ success: true });
           } catch (error) {
             logger.error('Webhook handler failed', error);
-            res.status(500).json({ error: 'Internal error' });
+            return res.status(500).json({ error: 'Internal error' });
           }
         });
 
         router.get('/health', (_req, res) => {
-          res.json({ status: 'ok' });
+          return res.json({ status: 'ok' });
         });
 
         httpRouter.use(router);
