@@ -5,6 +5,9 @@ import {
 } from '@backstage/backend-plugin-api';
 import express from 'express';
 
+/**
+ * Optional Notifications service ref
+ */
 const notificationsServiceRef = createServiceRef<{
   createNotification(options: {
     recipients: { type: 'entity'; entityRef: string };
@@ -55,10 +58,12 @@ export const webhookPlugin = createBackendPlugin({
         notifications: notificationsServiceRef,
       },
 
-      async init({ logger, httpRouter, config }, { notifications }) {
+      // 🔑 ONLY ONE PARAMETER
+      async init({ logger, httpRouter, config, notifications }) {
         const router = express.Router();
         router.use(express.json());
 
+        // Optional bearer auth
         router.use((req, res, next) => {
           const token = config.getOptionalString('webhook.token');
           if (!token) return next();
@@ -70,6 +75,9 @@ export const webhookPlugin = createBackendPlugin({
           return res.status(401).json({ error: 'Unauthorized' });
         });
 
+        /**
+         * POST /api/webhook
+         */
         router.post('/', async (req, res) => {
           try {
             const payload = req.body ?? {};
