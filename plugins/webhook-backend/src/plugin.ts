@@ -88,8 +88,14 @@ export const webhookPlugin = createBackendPlugin({
             /**
              * BACKEND → BACKEND AUTH
              */
-            const backendToken =
-              config.getString('backend.auth.keys.0.secret');
+            const authKeys = config.getConfigArray('backend.auth.keys');
+
+            if (!authKeys.length) {
+            throw new Error('No backend.auth.keys configured');
+            }
+
+            const backendToken = authKeys[0].getString('secret');
+
 
             const response = await fetch(
               `${backendBaseUrl}/api/notifications`,
