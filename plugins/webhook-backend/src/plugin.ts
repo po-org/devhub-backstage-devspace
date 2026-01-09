@@ -31,6 +31,7 @@ function resolveRecipient(payload: any): string | undefined {
 
 export const webhookPlugin = createBackendPlugin({
   pluginId: 'webhook',
+
   register(env) {
     env.registerInit({
       deps: {
@@ -44,18 +45,17 @@ export const webhookPlugin = createBackendPlugin({
         router.use(express.json());
 
         /**
-         * Webhook shared-secret auth (external callers)
+         * 🔐 Webhook shared-secret auth (external callers)
          */
         router.use((req, res, next) => {
           const expected = config.getOptionalString('webhook.token');
-          if (!expected) return next(); // dev mode
+          if (!expected) return next();
 
           const provided = req.header('x-webhook-secret');
           if (provided !== expected) {
-            logger.warn('Rejected webhook: invalid secret');
+            logger.warn('Rejected webhook request: invalid secret');
             return res.status(401).json({ error: 'Unauthorized' });
           }
-
           next();
         });
 
@@ -86,16 +86,21 @@ export const webhookPlugin = createBackendPlugin({
               config.getString('backend.baseUrl');
 
             /**
-             * BACKEND → BACKEND AUTH
+             * 🔑 LEGACY BACKEND AUTH (RHDH 1.7 REQUIRED)
              */
-            const authKeys = config.getConfigArray('backend.auth.keys');
+            const externalAccess =
+              config.getConfigArray('backend.auth.externalAccess');
 
-            if (!authKeys.length) {
-            throw new Error('No backend.auth.keys configured');
+            if (!externalAccess.length) {
+              throw new Error(
+                'backend.auth.externalAccess is not configured',
+              );
             }
 
-            const backendToken = authKeys[0].getString('secret');
-
+            const backendToken =
+              externalAccess[0]
+                .getConfig('options')
+                .getString('secret');
 
             const response = await fetch(
               `${backendBaseUrl}/api/notifications`,
@@ -103,7 +108,7 @@ export const webhookPlugin = createBackendPlugin({
                 method: 'POST',
                 headers: {
                   'Content-Type': 'application/json',
-                  'Authorization': `Bearer ${backendToken}`,
+                  Authorization: `Bearer ${backendToken}`,
                 },
                 body: JSON.stringify({
                   recipients: {
@@ -126,6 +131,9 @@ export const webhookPlugin = createBackendPlugin({
                 status: response.status,
                 body,
               });
+              return res.status(502).json({
+                error: 'Failed to create notification',
+              });
             }
 
             return res.json({ success: true });
@@ -145,7 +153,7 @@ export const webhookPlugin = createBackendPlugin({
         });
 
         /**
-         * Mount + allow unauthenticated access
+         * Mount router and allow unauthenticated access
          */
         httpRouter.use(router);
         httpRouter.addAuthPolicy({
