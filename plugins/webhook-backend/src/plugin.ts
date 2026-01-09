@@ -9,7 +9,9 @@ import fetch from 'node-fetch';
  * Resolve webhook payload into a Backstage entityRef
  */
 function resolveRecipient(payload: any): string | undefined {
-  if (payload.recipient) return payload.recipient;
+  if (payload.recipient) {
+    return payload.recipient;
+  }
 
   if (payload.group) {
     return payload.group.startsWith('group:')
@@ -56,6 +58,7 @@ export const webhookPlugin = createBackendPlugin({
             logger.warn('Rejected webhook request: invalid secret');
             return res.status(401).json({ error: 'Unauthorized' });
           }
+
           next();
         });
 
@@ -86,29 +89,15 @@ export const webhookPlugin = createBackendPlugin({
               config.getString('backend.baseUrl');
 
             /**
-             * 🔑 LEGACY BACKEND AUTH (RHDH 1.7 REQUIRED)
+             * ✅ RHDH 1.7–SAFE NOTIFICATION CALL
+             * Uses backend proxy which injects valid auth
              */
-            const externalAccess =
-              config.getConfigArray('backend.auth.externalAccess');
-
-            if (!externalAccess.length) {
-              throw new Error(
-                'backend.auth.externalAccess is not configured',
-              );
-            }
-
-            const backendToken =
-              externalAccess[0]
-                .getConfig('options')
-                .getString('secret');
-
             const response = await fetch(
-              `${backendBaseUrl}/api/notifications`,
+              `${backendBaseUrl}/api/proxy/notify-api`,
               {
                 method: 'POST',
                 headers: {
                   'Content-Type': 'application/json',
-                  Authorization: `Bearer ${backendToken}`,
                 },
                 body: JSON.stringify({
                   recipients: {
