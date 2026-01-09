@@ -2,7 +2,6 @@ import {
   coreServices,
   createBackendPlugin,
 } from '@backstage/backend-plugin-api';
-import { notificationsServiceRef } from '@backstage/plugin-notifications-node';
 import express from 'express';
 
 function resolveRecipient(payload: any): string | undefined {
