@@ -2,7 +2,37 @@ import {
   coreServices,
   createBackendPlugin,
 } from '@backstage/backend-plugin-api';
+import { notificationsServiceRef } from '@backstage/plugin-notifications-node';
 import express from 'express';
+
+function resolveRecipient(payload: any): string | undefined {
+  const raw =
+    payload.recipient ||
+    payload.backstage_user ||
+    payload.user ||
+    payload.username ||
+    payload.group;
+
+  if (!raw) {
+    return undefined;
+  }
+
+  // If already a full entityRef, trust it
+  if (
+    typeof raw === 'string' &&
+    (raw.startsWith('user:') || raw.startsWith('group:'))
+  ) {
+    return raw;
+  }
+
+  // Explicit group field
+  if (payload.group) {
+    return `group:default/${raw}`;
+  }
+
+  // Default to user
+  return `user:default/${raw}`;
+}
 
 export const webhookPlugin = createBackendPlugin({
   pluginId: 'webhook',
@@ -12,11 +42,11 @@ export const webhookPlugin = createBackendPlugin({
         logger: coreServices.logger,
         httpRouter: coreServices.httpRouter,
         config: coreServices.rootConfig,
+        notifications: notificationsServiceRef,
       },
-      async init({ logger, httpRouter, config }) {
+      async init({ logger, httpRouter, config, notifications }) {
         const router = express.Router();
 
-        // JSON body parsing
         router.use(express.json());
 
         // Optional Bearer token auth
@@ -45,26 +75,19 @@ export const webhookPlugin = createBackendPlugin({
         router.post('/', async (req, res) => {
           try {
             const payload = req.body ?? {};
+
             const source =
               req.headers['x-source'] ||
               payload.source ||
               'unknown';
 
-            logger.info('Webhook received', { source });
+            const entityRef = resolveRecipient(payload);
 
-            const targetUser =
-              payload.backstage_user ||
-              payload.user ||
-              payload.userId ||
-              payload.user_id ||
-              payload.username ||
-              payload.email?.split('@')[0];
-
-            if (!targetUser) {
+            if (!entityRef) {
               return res.status(400).json({
-                error: 'Missing user identifier',
+                error: 'Missing recipient',
                 hint:
-                  'Include backstage_user, user, userId, user_id, username, or email in payload',
+                  'Include recipient, backstage_user, user, username, or group',
               });
             }
 
@@ -75,30 +98,53 @@ export const webhookPlugin = createBackendPlugin({
               payload.summary ||
               'Webhook Notification';
 
-            const severity =
+            const severity: 'low' | 'normal' | 'high' | 'critical' =
               ['low', 'normal', 'high', 'critical'].includes(payload.severity)
                 ? payload.severity
-                : payload.status === 'failed' || payload.status === 'error'
+                : payload.status === 'failed' ||
+                  payload.status === 'error'
                 ? 'high'
                 : 'normal';
 
-            const topic = payload.topic || payload.type || source;
+            const description =
+              payload.description ||
+              payload.message ||
+              `Status update from ${source}`;
 
-            logger.info('Webhook processed', {
-              user: targetUser,
+            const link =
+              payload.link ||
+              payload.url ||
+              (payload.taskId
+                ? `/tasks/${payload.taskId}`
+                : undefined);
+
+            logger.info('Creating notification', {
+              recipient: entityRef,
               title,
-              topic,
               severity,
+            });
+
+            // 🔔 RHDH Notifications API
+            await notifications.createNotification({
+              recipients: {
+                type: 'entity',
+                entityRef,
+              },
+              payload: {
+                title,
+                description,
+                severity,
+                link,
+              },
             });
 
             return res.status(200).json({
               success: true,
-              data: {
-                user: targetUser,
-                source,
+              notification: {
+                recipient: entityRef,
                 title,
-                topic,
                 severity,
+                link,
               },
             });
           } catch (error) {
@@ -118,23 +164,15 @@ export const webhookPlugin = createBackendPlugin({
             status: 'ok',
             plugin: 'webhook',
             endpoint: '/api/webhook',
-            auth:
-              config.getOptionalString('webhook.token')
-                ? 'bearer-token'
-                : 'open',
+            auth: config.getOptionalString('webhook.token')
+              ? 'bearer-token'
+              : 'open',
           });
         });
 
-        /**
-         * IMPORTANT:
-         * - DO NOT pass a path
-         * - Backstage mounts this at /api/webhook automatically
-         */
+        // Backstage mounts this at /api/webhook
         httpRouter.use(router);
 
-        /**
-         * Auth policy paths are RELATIVE to /api/webhook
-         */
         httpRouter.addAuthPolicy({
           path: '/',
           allow: 'unauthenticated',
