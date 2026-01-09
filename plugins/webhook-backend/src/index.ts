@@ -1,1 +1,1 @@
-export { inboundNotificationsPlugin as default } from './plugin';
+export { webhookPlugin as default } from './plugin';
