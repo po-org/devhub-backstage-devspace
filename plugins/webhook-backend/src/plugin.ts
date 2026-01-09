@@ -5,13 +5,8 @@ import {
 import express from 'express';
 import fetch from 'node-fetch';
 
-/**
- * Resolve webhook payload into a Backstage entityRef
- */
 function resolveRecipient(payload: any): string | undefined {
-  if (payload.recipient) {
-    return payload.recipient;
-  }
+  if (payload.recipient) return payload.recipient;
 
   if (payload.group) {
     return payload.group.startsWith('group:')
@@ -47,7 +42,7 @@ export const webhookPlugin = createBackendPlugin({
         router.use(express.json());
 
         /**
-         * 🔐 Webhook shared-secret auth (external callers only)
+         * Webhook shared-secret auth
          */
         router.use((req, res, next) => {
           const expected = config.getOptionalString('webhook.token');
@@ -55,10 +50,8 @@ export const webhookPlugin = createBackendPlugin({
 
           const provided = req.header('x-webhook-secret');
           if (provided !== expected) {
-            logger.warn('Rejected webhook request: invalid secret');
             return res.status(401).json({ error: 'Unauthorized' });
           }
-
           next();
         });
 
@@ -72,47 +65,19 @@ export const webhookPlugin = createBackendPlugin({
 
             if (!entityRef) {
               return res.status(400).json({
-                error: 'Missing recipient (user or group)',
+                error: 'Missing recipient',
               });
             }
-
-            const title = payload.title ?? 'Webhook Notification';
-            const description =
-              payload.description ?? 'Status update received';
-
-            const severity =
-              ['low', 'normal', 'high', 'critical'].includes(payload.severity)
-                ? payload.severity
-                : 'normal';
 
             const backendBaseUrl =
               config.getString('backend.baseUrl');
 
-            /**
-             * 🔑 AUTHENTICATE TO THE BACKEND PROXY (REQUIRED)
-             */
-            const authKeys =
-              config.getConfigArray('backend.auth.keys');
-
-            if (!authKeys.length) {
-              throw new Error(
-                'backend.auth.keys is not configured',
-              );
-            }
-
-            const backendToken =
-              authKeys[0].getString('secret');
-
-            /**
-             * ✅ CALL NOTIFICATIONS THROUGH THE PROXY
-             */
             const response = await fetch(
               `${backendBaseUrl}/api/proxy/notify-api`,
               {
                 method: 'POST',
                 headers: {
                   'Content-Type': 'application/json',
-                  Authorization: `Bearer ${backendToken}`,
                 },
                 body: JSON.stringify({
                   recipients: {
@@ -120,9 +85,10 @@ export const webhookPlugin = createBackendPlugin({
                     entityRef,
                   },
                   payload: {
-                    title,
-                    description,
-                    severity,
+                    title: payload.title ?? 'Webhook Notification',
+                    description:
+                      payload.description ?? 'Status update',
+                    severity: payload.severity ?? 'normal',
                     link: payload.link,
                   },
                 }),
@@ -141,33 +107,38 @@ export const webhookPlugin = createBackendPlugin({
             }
 
             return res.json({ success: true });
-          } catch (error) {
-            logger.error('Webhook handler failed', error);
+          } catch (e) {
+            logger.error('Webhook handler failed', e);
             return res.status(500).json({
               error: 'Internal server error',
             });
           }
         });
 
-        /**
-         * GET /api/webhook/health
-         */
         router.get('/health', (_req, res) => {
           res.json({ status: 'ok' });
         });
 
         /**
-         * Mount router and allow unauthenticated access
+         * Mount webhook routes
          */
         httpRouter.use(router);
+
+        /**
+         * ALLOW PROXY CALLS WITHOUT AUTH
+         * 
+         */
+        httpRouter.addAuthPolicy({
+          path: '/proxy/notify-api',
+          allow: 'unauthenticated',
+        });
+
         httpRouter.addAuthPolicy({
           path: '/',
           allow: 'unauthenticated',
         });
 
-        logger.info('Webhook backend plugin initialized', {
-          endpoint: '/api/webhook',
-        });
+        logger.info('Webhook plugin initialized');
       },
     });
   },
