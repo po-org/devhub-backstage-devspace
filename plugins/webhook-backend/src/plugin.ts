@@ -5,9 +5,6 @@ import {
 } from '@backstage/backend-plugin-api';
 import express from 'express';
 
-/**
- * Optional Notifications service
- */
 const notificationsServiceRef = createServiceRef<{
   createNotification(options: {
     recipients: { type: 'entity'; entityRef: string };
@@ -51,11 +48,14 @@ export const webhookPlugin = createBackendPlugin({
         logger: coreServices.logger,
         httpRouter: coreServices.httpRouter,
         config: coreServices.rootConfig,
-
-        // 🔑 OPTIONAL dependency
-        notifications: notificationsServiceRef.optional(),
       },
-      async init({ logger, httpRouter, config, notifications }) {
+
+      // ✅ RHDH 1.7 optional dependency
+      optionalDeps: {
+        notifications: notificationsServiceRef,
+      },
+
+      async init({ logger, httpRouter, config }, { notifications }) {
         const router = express.Router();
         router.use(express.json());
 
@@ -92,7 +92,6 @@ export const webhookPlugin = createBackendPlugin({
               payload.link ??
               (payload.taskId ? `/tasks/${payload.taskId}` : undefined);
 
-            // 🔔 Only send notification if service exists
             if (notifications) {
               await notifications.createNotification({
                 recipients: {
