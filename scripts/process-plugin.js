@@ -78,7 +78,7 @@ console.log(`\n🚀 Exporting ${pluginType} plugin...\n`);
 
 if (pluginType === 'frontend-plugin') {
   // Frontend plugin export
-  execSync('npx @red-hat-developer-hub/cli@latest plugin export', {
+  execSync('npx @red-hat-developer-hub/cli@1.7.2 plugin export', {
     cwd: pluginPath,
     stdio: 'inherit',
   });
@@ -106,7 +106,7 @@ if (pluginType === 'frontend-plugin') {
     .join(' ');
 
   execSync(
-    `npx @red-hat-developer-hub/cli@latest plugin export --shared-package "!@backstage/*" ${embedFlags}`,
+    `npx @red-hat-developer-hub/cli@1.7.2 plugin export --shared-package "!@backstage/*" ${embedFlags}`,
     { cwd: pluginPath, stdio: 'inherit' }
   );
 } else {
