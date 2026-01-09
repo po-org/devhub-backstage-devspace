@@ -47,7 +47,7 @@ export const webhookPlugin = createBackendPlugin({
         router.use(express.json());
 
         /**
-         * 🔐 Webhook shared-secret auth (external callers)
+         * 🔐 Webhook shared-secret auth (external callers only)
          */
         router.use((req, res, next) => {
           const expected = config.getOptionalString('webhook.token');
@@ -72,7 +72,7 @@ export const webhookPlugin = createBackendPlugin({
 
             if (!entityRef) {
               return res.status(400).json({
-                error: 'Missing recipient',
+                error: 'Missing recipient (user or group)',
               });
             }
 
@@ -89,8 +89,22 @@ export const webhookPlugin = createBackendPlugin({
               config.getString('backend.baseUrl');
 
             /**
-             * ✅ RHDH 1.7–SAFE NOTIFICATION CALL
-             * Uses backend proxy which injects valid auth
+             * 🔑 AUTHENTICATE TO THE BACKEND PROXY (REQUIRED)
+             */
+            const authKeys =
+              config.getConfigArray('backend.auth.keys');
+
+            if (!authKeys.length) {
+              throw new Error(
+                'backend.auth.keys is not configured',
+              );
+            }
+
+            const backendToken =
+              authKeys[0].getString('secret');
+
+            /**
+             * ✅ CALL NOTIFICATIONS THROUGH THE PROXY
              */
             const response = await fetch(
               `${backendBaseUrl}/api/proxy/notify-api`,
@@ -98,6 +112,7 @@ export const webhookPlugin = createBackendPlugin({
                 method: 'POST',
                 headers: {
                   'Content-Type': 'application/json',
+                  Authorization: `Bearer ${backendToken}`,
                 },
                 body: JSON.stringify({
                   recipients: {
