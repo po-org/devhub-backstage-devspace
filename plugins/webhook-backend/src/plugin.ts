@@ -6,27 +6,27 @@ import express from 'express';
 import fetch from 'node-fetch';
 
 /**
- * Resolve a webhook payload into a Backstage entityRef
+ * Resolve webhook payload into a Backstage entityRef
  */
 function resolveRecipient(payload: any): string | undefined {
-  const raw =
-    payload.recipient ||
-    payload.backstage_user ||
-    payload.user ||
-    payload.username ||
-    payload.group;
-
-  if (!raw) return undefined;
-
-  if (raw.startsWith('user:') || raw.startsWith('group:')) {
-    return raw;
-  }
+  if (payload.recipient) return payload.recipient;
 
   if (payload.group) {
-    return `group:default/${raw}`;
+    return payload.group.startsWith('group:')
+      ? payload.group
+      : `group:default/${payload.group}`;
   }
 
-  return `user:default/${raw}`;
+  const user =
+    payload.backstage_user ||
+    payload.user ||
+    payload.username;
+
+  if (!user) return undefined;
+
+  return user.startsWith('user:')
+    ? user
+    : `user:default/${user}`;
 }
 
 export const webhookPlugin = createBackendPlugin({
@@ -38,31 +38,25 @@ export const webhookPlugin = createBackendPlugin({
         httpRouter: coreServices.httpRouter,
         config: coreServices.rootConfig,
       },
+
       async init({ logger, httpRouter, config }) {
         const router = express.Router();
         router.use(express.json());
 
         /**
-         * 🔐 Shared secret authentication
-         * (recommended for webhooks)
+         * Webhook shared-secret auth (external callers)
          */
         router.use((req, res, next) => {
-          const configuredSecret =
-            config.getOptionalString('webhook.secret');
+          const expected = config.getOptionalString('webhook.token');
+          if (!expected) return next(); // dev mode
 
-          // If no secret configured, allow all (dev mode)
-          if (!configuredSecret) {
-            return next();
-          }
-
-          const providedSecret = req.header('x-webhook-secret');
-
-          if (providedSecret !== configuredSecret) {
+          const provided = req.header('x-webhook-secret');
+          if (provided !== expected) {
             logger.warn('Rejected webhook: invalid secret');
             return res.status(401).json({ error: 'Unauthorized' });
           }
 
-          return next();
+          next();
         });
 
         /**
@@ -92,27 +86,41 @@ export const webhookPlugin = createBackendPlugin({
               config.getString('backend.baseUrl');
 
             /**
-             * 🔔 Call Notifications backend via REST API
-             * (ONLY supported method in RHDH 1.7)
+             * BACKEND → BACKEND AUTH
              */
-            await fetch(`${backendBaseUrl}/api/notifications`, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
+            const backendToken =
+              config.getString('backend.auth.keys.0.secret');
+
+            const response = await fetch(
+              `${backendBaseUrl}/api/notifications`,
+              {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': `Bearer ${backendToken}`,
+                },
+                body: JSON.stringify({
+                  recipients: {
+                    type: 'entity',
+                    entityRef,
+                  },
+                  payload: {
+                    title,
+                    description,
+                    severity,
+                    link: payload.link,
+                  },
+                }),
               },
-              body: JSON.stringify({
-                recipients: {
-                  type: 'entity',
-                  entityRef,
-                },
-                payload: {
-                  title,
-                  description,
-                  severity,
-                  link: payload.link,
-                },
-              }),
-            });
+            );
+
+            if (!response.ok) {
+              const body = await response.text();
+              logger.error('Notification creation failed', {
+                status: response.status,
+                body,
+              });
+            }
 
             return res.json({ success: true });
           } catch (error) {
@@ -127,18 +135,13 @@ export const webhookPlugin = createBackendPlugin({
          * GET /api/webhook/health
          */
         router.get('/health', (_req, res) => {
-          return res.json({ status: 'ok' });
+          res.json({ status: 'ok' });
         });
 
         /**
-         * Mount router at /api/webhook
+         * Mount + allow unauthenticated access
          */
         httpRouter.use(router);
-
-        /**
-         * 🔓 Allow unauthenticated access
-         * (required for external webhooks)
-         */
         httpRouter.addAuthPolicy({
           path: '/',
           allow: 'unauthenticated',
