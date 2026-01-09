@@ -5,6 +5,9 @@ import {
 import express from 'express';
 import fetch from 'node-fetch';
 
+/**
+ * Resolve a webhook payload into a Backstage entityRef
+ */
 function resolveRecipient(payload: any): string | undefined {
   const raw =
     payload.recipient ||
@@ -39,13 +42,41 @@ export const webhookPlugin = createBackendPlugin({
         const router = express.Router();
         router.use(express.json());
 
+        /**
+         * 🔐 Shared secret authentication
+         * (recommended for webhooks)
+         */
+        router.use((req, res, next) => {
+          const configuredSecret =
+            config.getOptionalString('webhook.secret');
+
+          // If no secret configured, allow all (dev mode)
+          if (!configuredSecret) {
+            return next();
+          }
+
+          const providedSecret = req.header('x-webhook-secret');
+
+          if (providedSecret !== configuredSecret) {
+            logger.warn('Rejected webhook: invalid secret');
+            return res.status(401).json({ error: 'Unauthorized' });
+          }
+
+          return next();
+        });
+
+        /**
+         * POST /api/webhook
+         */
         router.post('/', async (req, res) => {
           try {
             const payload = req.body ?? {};
-            const recipient = resolveRecipient(payload);
+            const entityRef = resolveRecipient(payload);
 
-            if (!recipient) {
-              return res.status(400).json({ error: 'Missing recipient' });
+            if (!entityRef) {
+              return res.status(400).json({
+                error: 'Missing recipient',
+              });
             }
 
             const title = payload.title ?? 'Webhook Notification';
@@ -60,6 +91,10 @@ export const webhookPlugin = createBackendPlugin({
             const backendBaseUrl =
               config.getString('backend.baseUrl');
 
+            /**
+             * 🔔 Call Notifications backend via REST API
+             * (ONLY supported method in RHDH 1.7)
+             */
             await fetch(`${backendBaseUrl}/api/notifications`, {
               method: 'POST',
               headers: {
@@ -68,24 +103,50 @@ export const webhookPlugin = createBackendPlugin({
               body: JSON.stringify({
                 recipients: {
                   type: 'entity',
-                  entityRef: recipient,
+                  entityRef,
                 },
                 payload: {
                   title,
                   description,
                   severity,
+                  link: payload.link,
                 },
               }),
             });
 
             return res.json({ success: true });
           } catch (error) {
-            logger.error('Webhook failed', error);
-            return res.status(500).json({ error: 'Internal error' });
+            logger.error('Webhook handler failed', error);
+            return res.status(500).json({
+              error: 'Internal server error',
+            });
           }
         });
 
+        /**
+         * GET /api/webhook/health
+         */
+        router.get('/health', (_req, res) => {
+          return res.json({ status: 'ok' });
+        });
+
+        /**
+         * Mount router at /api/webhook
+         */
         httpRouter.use(router);
+
+        /**
+         * 🔓 Allow unauthenticated access
+         * (required for external webhooks)
+         */
+        httpRouter.addAuthPolicy({
+          path: '/',
+          allow: 'unauthenticated',
+        });
+
+        logger.info('Webhook backend plugin initialized', {
+          endpoint: '/api/webhook',
+        });
       },
     });
   },
