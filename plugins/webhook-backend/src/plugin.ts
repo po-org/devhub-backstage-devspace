@@ -1,26 +1,9 @@
 import {
   coreServices,
   createBackendPlugin,
-  createServiceRef,
 } from '@backstage/backend-plugin-api';
 import express from 'express';
-
-/**
- * Optional Notifications service ref
- */
-const notificationsServiceRef = createServiceRef<{
-  createNotification(options: {
-    recipients: { type: 'entity'; entityRef: string };
-    payload: {
-      title: string;
-      description?: string;
-      severity?: 'low' | 'normal' | 'high' | 'critical';
-      link?: string;
-    };
-  }): Promise<void>;
-}>({
-  id: 'notifications',
-});
+import fetch from 'node-fetch';
 
 function resolveRecipient(payload: any): string | undefined {
   const raw =
@@ -52,94 +35,57 @@ export const webhookPlugin = createBackendPlugin({
         httpRouter: coreServices.httpRouter,
         config: coreServices.rootConfig,
       },
-
-      // ✅ RHDH 1.7 optional dependency
-      optionalDeps: {
-        notifications: notificationsServiceRef,
-      },
-
-      // 🔑 ONLY ONE PARAMETER
-      async init({ logger, httpRouter, config, notifications }) {
+      async init({ logger, httpRouter, config }) {
         const router = express.Router();
         router.use(express.json());
 
-        // Optional bearer auth
-        router.use((req, res, next) => {
-          const token = config.getOptionalString('webhook.token');
-          if (!token) return next();
-
-          if (req.headers.authorization === `Bearer ${token}`) {
-            return next();
-          }
-
-          return res.status(401).json({ error: 'Unauthorized' });
-        });
-
-        /**
-         * POST /api/webhook
-         */
         router.post('/', async (req, res) => {
           try {
             const payload = req.body ?? {};
-            const entityRef = resolveRecipient(payload);
+            const recipient = resolveRecipient(payload);
 
-            if (!entityRef) {
+            if (!recipient) {
               return res.status(400).json({ error: 'Missing recipient' });
             }
 
             const title = payload.title ?? 'Webhook Notification';
-            const severity: 'low' | 'normal' | 'high' | 'critical' =
+            const description =
+              payload.description ?? 'Status update received';
+
+            const severity =
               ['low', 'normal', 'high', 'critical'].includes(payload.severity)
                 ? payload.severity
                 : 'normal';
 
-            const description =
-              payload.description ?? 'Status update received';
+            const backendBaseUrl =
+              config.getString('backend.baseUrl');
 
-            const link =
-              payload.link ??
-              (payload.taskId ? `/tasks/${payload.taskId}` : undefined);
-
-            if (notifications) {
-              await notifications.createNotification({
+            await fetch(`${backendBaseUrl}/api/notifications`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
                 recipients: {
                   type: 'entity',
-                  entityRef,
+                  entityRef: recipient,
                 },
                 payload: {
                   title,
                   description,
                   severity,
-                  link,
                 },
-              });
-            } else {
-              logger.warn(
-                'Notifications service not available; skipping notification',
-                { entityRef, title },
-              );
-            }
+              }),
+            });
 
             return res.json({ success: true });
           } catch (error) {
-            logger.error('Webhook handler failed', error);
+            logger.error('Webhook failed', error);
             return res.status(500).json({ error: 'Internal error' });
           }
         });
 
-        router.get('/health', (_req, res) => {
-          return res.json({ status: 'ok' });
-        });
-
         httpRouter.use(router);
-        httpRouter.addAuthPolicy({
-          path: '/',
-          allow: 'unauthenticated',
-        });
-
-        logger.info('Webhook backend plugin initialized', {
-          endpoint: '/api/webhook',
-        });
       },
     });
   },
