@@ -5,5 +5,12 @@
     "role": "backend-plugin-module",
     "packageName": "@red-hat-developer-hub/http-pretty-output",
     "timestamp": "2025-12-24T01:22:13Z"
+  },
+  "webhook-backend": {
+    "hash": "79bdce983bc0871ec5e9ee6f6cdadfcf5d0bca97",
+    "version": "0.1.0",
+    "role": "backend-plugin",
+    "packageName": "@red-hat-developer-hub/webhook-backend-plugin",
+    "timestamp": "2026-01-09T02:13:31Z"
   }
 }
